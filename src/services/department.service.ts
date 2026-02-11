@@ -35,7 +35,7 @@ export const updateNotificationStatus = async (id: number, status: string) => {
             if (msg.orderId) {
                 await prisma.service_order.update({
                     where: { id: Number(msg.orderId) },
-                    data: { status: 'Completed' }
+                    data: { testStatus: 'Completed' }
                 });
             }
         } catch (e) {

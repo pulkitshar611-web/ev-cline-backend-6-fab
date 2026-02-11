@@ -1,4 +1,5 @@
 import * as doctorService from '../services/doctor.service.js';
+import * as pharmacyService from '../services/pharmacy.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { prisma } from '../server.js';
 const resolveDoctorId = async (userId, clinicId) => {
@@ -14,7 +15,7 @@ export const getQueue = asyncHandler(async (req, res) => {
 });
 export const createAssessment = asyncHandler(async (req, res) => {
     const doctorId = await resolveDoctorId(req.user.id, req.clinicId);
-    const assessment = await doctorService.saveAssessment(req.clinicId, doctorId, req.body);
+    const assessment = await doctorService.saveCompleteEMR(req.clinicId, doctorId, req.body);
     res.status(201).json({ status: 'success', data: assessment });
 });
 export const getHistory = asyncHandler(async (req, res) => {
@@ -72,6 +73,10 @@ export const getOrders = asyncHandler(async (req, res) => {
     const doctorId = await resolveDoctorId(req.user.id, req.clinicId);
     const orders = await doctorService.getDoctorOrders(req.clinicId, doctorId);
     res.status(200).json({ status: 'success', data: orders });
+});
+export const getPrescriptionInventory = asyncHandler(async (req, res) => {
+    const inventory = await pharmacyService.getInventory(req.clinicId);
+    res.status(200).json({ status: 'success', data: inventory });
 });
 export const getRevenue = asyncHandler(async (req, res) => {
     const doctorId = await resolveDoctorId(req.user.id, req.clinicId);

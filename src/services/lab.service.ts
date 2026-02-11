@@ -56,3 +56,16 @@ export const uploadReport = async (clinicId: number, orderId: number, reportCont
 export const publishReport = async (clinicId: number, orderId: number) => {
     return await updateLabStatus(clinicId, orderId, 'Published');
 };
+
+export const completeLabOrder = async (clinicId: number, orderId: number, data: { result?: string, price?: number, paid?: boolean }) => {
+    // Note: service_order schema doesn't have price/paid fields yet, so we only update status and result
+    const updateData: any = { testStatus: 'Published' };
+    if (data.result) {
+        updateData.result = data.result;
+    }
+
+    return await prisma.service_order.update({
+        where: { id: orderId, clinicId },
+        data: updateData
+    });
+};

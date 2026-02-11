@@ -29,6 +29,10 @@ export const updateApptStatus = asyncHandler(async (req, res) => {
     const appt = await receptionService.updateBookingStatus(req.clinicId, Number(req.params.id), req.body.status);
     res.status(200).json({ status: 'success', data: appt });
 });
+export const checkIn = asyncHandler(async (req, res) => {
+    const appt = await receptionService.checkInPatient(req.clinicId, Number(req.params.id));
+    res.status(200).json({ status: 'success', data: appt });
+});
 export const getStats = asyncHandler(async (req, res) => {
     const stats = await receptionService.getReceptionStats(req.clinicId);
     res.status(200).json({ status: 'success', data: stats });

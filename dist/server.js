@@ -19,6 +19,10 @@ import patientRoutes from './routes/patient.routes.js';
 import formsRoutes from './routes/forms.routes.js';
 import pharmacyRoutes from './routes/pharmacy.routes.js';
 import labRoutes from './routes/lab.routes.js';
+import documentRoutes from './routes/document.routes.js';
+import menuRoutes from './routes/menu.routes.js';
+import publicRoutes from './routes/public.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 import { startTime } from './utils/system.js';
 const app = express();
 export const prisma = new PrismaClient();
@@ -53,6 +57,10 @@ app.use('/api/patient', patientRoutes);
 app.use('/api/forms', formsRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
 app.use('/api/lab', labRoutes);
+app.use('/api/document-controller', documentRoutes);
+app.use('/api/menu', menuRoutes);
+app.use('/api/public', publicRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 /* -------------------- HEALTH CHECK -------------------- */
 app.get('/health', (_req, res) => {
     res.status(200).json({

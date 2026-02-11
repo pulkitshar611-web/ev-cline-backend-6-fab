@@ -63,10 +63,19 @@ export const login = async (data, ip, device) => {
         console.error('Error fetching staff records:', e);
         // Fallback or ignore
     }
-    const roles = Array.from(new Set([
-        user.role,
-        ...staffRecords.map((r) => String(r.role))
-    ])).filter(r => r && r.length > 0);
+    let allRoles = [user.role];
+    staffRecords.forEach((r) => {
+        allRoles.push(r.role);
+        if (r.roles) {
+            try {
+                const multi = JSON.parse(r.roles);
+                if (Array.isArray(multi))
+                    allRoles.push(...multi);
+            }
+            catch (e) { }
+        }
+    });
+    const roles = Array.from(new Set(allRoles)).filter(r => r && r.length > 0);
     const isSuperAdmin = roles.includes('SUPER_ADMIN') || user.role === 'SUPER_ADMIN';
     // Determine the primary role for the token
     let tokenRole = user.role;
@@ -147,10 +156,19 @@ export const verifyOTP = async (data, ip, device) => {
     });
     // Roles and Context logic
     const staffRecords = user.clinicstaff;
-    const roles = Array.from(new Set([
-        user.role,
-        ...staffRecords.map((r) => String(r.role))
-    ])).filter(r => r && r.length > 0);
+    let allRoles = [user.role];
+    staffRecords.forEach((r) => {
+        allRoles.push(r.role);
+        if (r.roles) {
+            try {
+                const multi = JSON.parse(r.roles);
+                if (Array.isArray(multi))
+                    allRoles.push(...multi);
+            }
+            catch (e) { }
+        }
+    });
+    const roles = Array.from(new Set(allRoles)).filter(r => r && r.length > 0);
     const isSuperAdmin = roles.includes('SUPER_ADMIN') || user.role === 'SUPER_ADMIN';
     // Determine the primary role for the token
     let tokenRole = user.role;
@@ -363,10 +381,19 @@ export const impersonate = async (superAdminId, targetUserId, ip, device) => {
     const staffRecords = await prisma.clinicstaff.findMany({
         where: { userId: targetUser.id }
     });
-    const roles = Array.from(new Set([
-        targetUser.role,
-        ...staffRecords.map(s => String(s.role))
-    ])).map(r => r.toUpperCase());
+    let allRoles = [targetUser.role];
+    staffRecords.forEach((s) => {
+        allRoles.push(s.role);
+        if (s.roles) {
+            try {
+                const multi = JSON.parse(s.roles);
+                if (Array.isArray(multi))
+                    allRoles.push(...multi);
+            }
+            catch (e) { }
+        }
+    });
+    const roles = Array.from(new Set(allRoles)).filter(r => r && r.length > 0).map(r => String(r).toUpperCase());
     return {
         user: {
             id: targetUser.id,
@@ -431,10 +458,19 @@ export const impersonateClinic = async (superAdminId, clinicId, ip, device) => {
     const staffRecords = await prisma.clinicstaff.findMany({
         where: { userId: targetUser.id }
     });
-    const roles = Array.from(new Set([
-        targetUser.role,
-        ...staffRecords.map(s => String(s.role))
-    ])).map(r => r.toUpperCase());
+    let allRoles = [targetUser.role];
+    staffRecords.forEach((s) => {
+        allRoles.push(s.role);
+        if (s.roles) {
+            try {
+                const multi = JSON.parse(s.roles);
+                if (Array.isArray(multi))
+                    allRoles.push(...multi);
+            }
+            catch (e) { }
+        }
+    });
+    const roles = Array.from(new Set(allRoles)).filter(r => r && r.length > 0).map(r => String(r).toUpperCase());
     return {
         user: {
             id: targetUser.id,

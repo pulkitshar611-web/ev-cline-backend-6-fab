@@ -62,38 +62,33 @@ export const getClinicStaff = async (clinicId) => {
             }
         }
     });
-    // Group by userId to support multiple roles
-    const grouped = staffRecords.reduce((acc, record) => {
-        const userId = record.userId;
-        if (!acc[userId]) {
-            acc[userId] = {
-                id: record.id,
-                userId: record.userId,
-                clinicId: record.clinicId,
-                name: record.user.name,
-                email: record.user.email,
-                phone: record.user.phone,
-                status: record.user.status,
-                joined: record.user.joined ? record.user.joined.toISOString().split('T')[0] : null,
-                roles: [],
-                department: record.department,
-                specialty: record.specialty
-            };
+    return staffRecords.map(record => {
+        let roles = [];
+        try {
+            roles = record.roles ? JSON.parse(record.roles) : [record.role];
         }
-        acc[userId].roles.push(record.role);
-        if (!acc[userId].department && record.department)
-            acc[userId].department = record.department;
-        if (!acc[userId].specialty && record.specialty)
-            acc[userId].specialty = record.specialty;
-        return acc;
-    }, {});
-    return Object.values(grouped).map((s) => ({
-        ...s,
-        role: s.roles[0]
-    }));
+        catch (e) {
+            roles = [record.role];
+        }
+        return {
+            id: record.id,
+            userId: record.userId,
+            clinicId: record.clinicId,
+            name: record.user.name,
+            email: record.user.email,
+            phone: record.user.phone,
+            status: record.user.status,
+            joined: record.user.joined ? record.user.joined.toISOString().split('T')[0] : null,
+            role: record.role,
+            roles: roles,
+            department: record.department,
+            specialty: record.specialty
+        };
+    });
 };
 export const addStaff = async (clinicId, data) => {
-    const { email, password, name, role, phone, department, specialty } = data;
+    const { email, password, name, roles, phone, department, specialty } = data;
+    const primaryRole = (roles && roles.length > 0) ? roles[0].toUpperCase() : 'RECEPTIONIST';
     // Check if user exists
     let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -107,35 +102,35 @@ export const addStaff = async (clinicId, data) => {
                 name,
                 phone,
                 status: 'active',
-                role: role.toUpperCase()
+                role: primaryRole
             }
         });
     }
     else {
-        // Update user's phone and role (to make this the new primary role)
+        // Update user's phone and primary role
         await prisma.user.update({
             where: { id: user.id },
             data: {
                 phone: phone || undefined,
-                role: role.toUpperCase()
+                role: primaryRole
             }
         });
     }
-    // Check if staff already has this role in this clinic
+    // Check if staff already exists in this clinic
     const existing = await prisma.clinicstaff.findFirst({
         where: {
             userId: user.id,
-            clinicId,
-            role: role.toUpperCase()
+            clinicId
         }
     });
     if (existing)
-        throw new AppError('User already has this role in this clinic', 400);
+        throw new AppError('User is already a staff member in this clinic', 400);
     const newStaff = await prisma.clinicstaff.create({
         data: {
             userId: user.id,
             clinicId,
-            role: role.toUpperCase(),
+            role: primaryRole,
+            roles: JSON.stringify(roles || [primaryRole]),
             department,
             specialty
         },
@@ -151,7 +146,7 @@ export const addStaff = async (clinicId, data) => {
             performedBy: 'ADMIN',
             userId: user.id,
             clinicId,
-            details: JSON.stringify({ name: user.name, role: newStaff.role, department })
+            details: JSON.stringify({ name: user.name, roles, department })
         }
     });
     return {
@@ -161,7 +156,7 @@ export const addStaff = async (clinicId, data) => {
         name: newStaff.user.name,
         email: newStaff.user.email,
         role: newStaff.role,
-        roles: [newStaff.role],
+        roles: roles || [newStaff.role],
         department: newStaff.department,
         specialty: newStaff.specialty,
         status: newStaff.user.status,
@@ -170,7 +165,8 @@ export const addStaff = async (clinicId, data) => {
     };
 };
 export const updateStaff = async (clinicId, staffId, data) => {
-    const { name, email, phone, role, department, specialty, status } = data;
+    const { name, email, phone, roles, department, specialty, status } = data;
+    const primaryRole = (roles && roles.length > 0) ? roles[0].toUpperCase() : undefined;
     const staff = await prisma.clinicstaff.findUnique({
         where: { id: staffId },
         include: { user: true }
@@ -180,7 +176,7 @@ export const updateStaff = async (clinicId, staffId, data) => {
     if (staff.clinicId !== clinicId)
         throw new AppError('Unauthorized: Staff does not belong to this clinic', 403);
     // Update user info if name/email/phone/status/role changed
-    if (name || email || phone || status || role) {
+    if (name || email || phone || status || primaryRole) {
         await prisma.user.update({
             where: { id: staff.userId },
             data: {
@@ -188,7 +184,7 @@ export const updateStaff = async (clinicId, staffId, data) => {
                 email: email || undefined,
                 phone: phone || undefined,
                 status: status || undefined,
-                role: role ? role.toUpperCase() : undefined
+                role: primaryRole ? primaryRole : undefined
             }
         });
     }
@@ -196,7 +192,8 @@ export const updateStaff = async (clinicId, staffId, data) => {
     const updatedStaff = await prisma.clinicstaff.update({
         where: { id: staffId },
         data: {
-            role: role ? role.toUpperCase() : undefined,
+            role: primaryRole ? primaryRole : undefined,
+            roles: roles ? JSON.stringify(roles) : undefined,
             department: department || undefined,
             specialty: specialty || undefined
         },
@@ -215,6 +212,13 @@ export const updateStaff = async (clinicId, staffId, data) => {
             details: JSON.stringify({ staffId, updates: Object.keys(data) })
         }
     });
+    let finalRoles = [];
+    try {
+        finalRoles = updatedStaff.roles ? JSON.parse(updatedStaff.roles) : [updatedStaff.role];
+    }
+    catch (e) {
+        finalRoles = [updatedStaff.role];
+    }
     return {
         id: updatedStaff.id,
         userId: updatedStaff.userId,
@@ -223,7 +227,7 @@ export const updateStaff = async (clinicId, staffId, data) => {
         email: updatedStaff.user.email,
         phone: updatedStaff.user.phone,
         role: updatedStaff.role,
-        roles: [updatedStaff.role],
+        roles: finalRoles,
         department: updatedStaff.department,
         specialty: updatedStaff.specialty,
         status: updatedStaff.user.status,

@@ -1,7 +1,7 @@
 import * as publicService from '../services/public.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 export const getClinicDetails = asyncHandler(async (req, res) => {
-    const { subdomain } = req.params;
+    const subdomain = Array.isArray(req.params.subdomain) ? req.params.subdomain[0] : req.params.subdomain;
     const clinic = await publicService.getClinicBySubdomain(subdomain);
     res.status(200).json({ success: true, data: clinic });
 });
@@ -21,7 +21,7 @@ export const createBooking = asyncHandler(async (req, res) => {
     res.status(201).json({ success: true, message: 'Appointment booked successfully', data: booking });
 });
 export const getTokens = asyncHandler(async (req, res) => {
-    const { subdomain } = req.params;
+    const subdomain = Array.isArray(req.params.subdomain) ? req.params.subdomain[0] : req.params.subdomain;
     const tokens = await publicService.getLiveTokens(subdomain);
     res.status(200).json({ success: true, data: tokens });
 });

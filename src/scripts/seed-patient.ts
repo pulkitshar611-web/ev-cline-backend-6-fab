@@ -68,7 +68,7 @@ const seedPatient = async () => {
                 time: '10:00 AM',
                 status: 'Approved',
                 source: 'Patient Portal',
-                fees: 350
+                billingAmount: 350
             }
         });
 

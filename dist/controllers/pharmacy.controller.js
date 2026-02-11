@@ -30,6 +30,28 @@ export const addInventory = async (req, res, next) => {
         next(error);
     }
 };
+export const updateInventory = async (req, res, next) => {
+    try {
+        const clinicId = req.clinicId;
+        const id = Number(req.params.id);
+        const item = await pharmacyService.updateInventory(clinicId, id, req.body);
+        res.json({ status: 'success', data: item });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+export const deleteInventory = async (req, res, next) => {
+    try {
+        const clinicId = req.clinicId;
+        const id = Number(req.params.id);
+        await pharmacyService.deleteInventory(clinicId, id);
+        res.json({ status: 'success', message: 'Item deleted' });
+    }
+    catch (error) {
+        next(error);
+    }
+};
 export const getOrders = async (req, res, next) => {
     try {
         const clinicId = req.clinicId;
@@ -56,6 +78,48 @@ export const directSale = async (req, res, next) => {
         const clinicId = req.clinicId;
         const result = await pharmacyService.directSale(clinicId, req.body);
         res.status(201).json({ status: 'success', data: result });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+export const getPosSales = async (req, res, next) => {
+    try {
+        const clinicId = req.clinicId;
+        const sales = await pharmacyService.getPosSales(clinicId);
+        res.json({ status: 'success', data: sales });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+export const updatePosSale = async (req, res, next) => {
+    try {
+        const clinicId = req.clinicId;
+        const invoiceId = req.params.id;
+        const result = await pharmacyService.updatePosSale(clinicId, invoiceId, req.body);
+        res.json({ status: 'success', data: result });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+export const deletePosSale = async (req, res, next) => {
+    try {
+        const clinicId = req.clinicId;
+        const invoiceId = req.params.id;
+        await pharmacyService.deletePosSale(clinicId, invoiceId);
+        res.json({ status: 'success', message: 'Sale deleted' });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+export const getNotifications = async (req, res, next) => {
+    try {
+        const clinicId = req.clinicId;
+        const count = await pharmacyService.getPharmacyNotificationsCount(clinicId);
+        res.json({ status: 'success', data: { count } });
     }
     catch (error) {
         next(error);

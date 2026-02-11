@@ -29,7 +29,10 @@ export const addInventory = async (clinicId, data) => {
         }
     });
 };
-export const updateInventory = async (id, data) => {
+export const updateInventory = async (clinicId, id, data) => {
+    const existing = await prisma.inventory.findFirst({ where: { id, clinicId } });
+    if (!existing)
+        throw new AppError('Inventory item not found', 404);
     return await prisma.inventory.update({
         where: { id },
         data: {
@@ -41,23 +44,89 @@ export const updateInventory = async (id, data) => {
         }
     });
 };
+export const deleteInventory = async (clinicId, id) => {
+    const existing = await prisma.inventory.findFirst({ where: { id, clinicId } });
+    if (!existing)
+        throw new AppError('Inventory item not found', 404);
+    return await prisma.inventory.delete({ where: { id } });
+};
 export const getPharmacyOrders = async (clinicId) => {
-    console.log(`[PHARMACY] Fetching orders for clinic ${clinicId}`);
-    const orders = await prisma.service_order.findMany({
+    console.log(`[PHARMACY] Fetching orders/prescriptions for clinic ${clinicId}`);
+    // 1. Get Service Orders for Pharmacy (legacy/quick-orders)
+    const serviceOrders = await prisma.service_order.findMany({
         where: {
             clinicId,
-            type: { in: ['PHARMACY', 'Pharmacy', 'pharmacy'] } // Robust check
+            type: { in: ['PHARMACY', 'Pharmacy', 'pharmacy'] }
         },
         include: {
             patient: { select: { name: true } }
         },
         orderBy: { createdAt: 'desc' }
     });
-    console.log(`[PHARMACY] Found ${orders.length} orders for clinic ${clinicId}`);
-    return orders;
+    // 2. Get Prescriptions from Medical Records (new EMR flow)
+    const prescribedRecords = await prisma.medicalrecord.findMany({
+        where: {
+            clinicId,
+            type: 'PRESCRIPTION',
+            status: { not: 'Dispensed' }
+        },
+        include: {
+            patient: { select: { name: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+    const combined = [
+        ...serviceOrders.map((o) => ({
+            id: o.id,
+            patientName: o.patient?.name,
+            testName: o.testName,
+            status: o.testStatus || o.status,
+            paymentStatus: o.paymentStatus,
+            createdAt: o.createdAt,
+            source: 'ORDER'
+        })),
+        ...prescribedRecords.map((r) => {
+            const data = JSON.parse(r.data);
+            return {
+                id: r.id,
+                patientName: r.patient?.name,
+                testName: Array.isArray(data.items) ? data.items.map((i) => i.medicineName).join(', ') : 'Prescription',
+                status: r.status,
+                paymentStatus: 'Paid',
+                createdAt: r.createdAt,
+                source: 'EMR'
+            };
+        })
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return combined;
+};
+export const getPharmacyNotificationsCount = async (clinicId) => {
+    return await prisma.notification.count({
+        where: {
+            clinicId,
+            department: 'pharmacy',
+            status: 'unread'
+        }
+    });
 };
 export const processPharmacyOrder = async (clinicId, orderId, items = [], paid = false, manualAmount) => {
-    // items: array of { inventoryId, quantity, price }
+    // If no items passed, use prescription items from order (doctor-prescribed)
+    if (!items || items.length === 0) {
+        const order = await prisma.service_order.findFirst({ where: { id: orderId, clinicId } });
+        if (order?.result) {
+            try {
+                const parsed = JSON.parse(order.result);
+                if (Array.isArray(parsed?.items) && parsed.items.length > 0) {
+                    items = parsed.items.map((i) => ({
+                        inventoryId: i.inventoryId,
+                        quantity: Number(i.quantity) || 1,
+                        price: i.unitPrice ?? i.price
+                    }));
+                }
+            }
+            catch (_) { }
+        }
+    }
     console.log(`[Pharmacy Service] Processing Order ${orderId} | Paid: ${paid} | Amount: ${manualAmount} | Items: ${items.length}`);
     try {
         return await prisma.$transaction(async (tx) => {
@@ -92,7 +161,7 @@ export const processPharmacyOrder = async (clinicId, orderId, items = [], paid =
             // Update Order Status
             const order = await tx.service_order.update({
                 where: { id: orderId },
-                data: { status: 'Completed' }
+                data: { testStatus: 'Completed' }
             });
             if (serviceDetails.length === 0) {
                 // If no inventory items matched, use the doctor's prescription text
@@ -177,4 +246,37 @@ export const directSale = async (clinicId, data) => {
         });
         return { invoice };
     });
+};
+export const getPosSales = async (clinicId) => {
+    return await prisma.invoice.findMany({
+        where: {
+            clinicId,
+            service: { contains: 'Direct Sale' }
+        },
+        include: {
+            patient: { select: { id: true, name: true, email: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+};
+export const updatePosSale = async (clinicId, invoiceId, data) => {
+    const existing = await prisma.invoice.findFirst({
+        where: { id: invoiceId, clinicId, service: { contains: 'Direct Sale' } }
+    });
+    if (!existing)
+        throw new AppError('POS sale not found', 404);
+    const { status } = data;
+    return await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: status != null ? { status: String(status) } : {}
+    });
+};
+export const deletePosSale = async (clinicId, invoiceId) => {
+    const existing = await prisma.invoice.findFirst({
+        where: { id: invoiceId, clinicId, service: { contains: 'Direct Sale' } }
+    });
+    if (!existing)
+        throw new AppError('POS sale not found', 404);
+    await prisma.invoice.delete({ where: { id: invoiceId } });
+    return { message: 'Sale deleted' };
 };
