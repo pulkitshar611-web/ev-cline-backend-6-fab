@@ -115,3 +115,13 @@ export const deletePosSale = async (req: any, res: Response, next: NextFunction)
         next(error);
     }
 };
+
+export const getNotifications = async (req: any, res: Response, next: NextFunction) => {
+    try {
+        const clinicId = req.clinicId;
+        const count = await pharmacyService.getPharmacyNotificationsCount(clinicId);
+        res.json({ status: 'success', data: { count } });
+    } catch (error) {
+        next(error);
+    }
+};

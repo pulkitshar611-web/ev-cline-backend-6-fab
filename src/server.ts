@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+// Force reload environment variables to pick up changes in .env
+delete process.env.DATABASE_URL;
 dotenv.config({ override: true });
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -20,42 +22,27 @@ import formsRoutes from './routes/forms.routes.js';
 import pharmacyRoutes from './routes/pharmacy.routes.js';
 import labRoutes from './routes/lab.routes.js';
 import documentRoutes from './routes/document.routes.js';
+import menuRoutes from './routes/menu.routes.js';
+import publicRoutes from './routes/public.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 
 import { startTime } from './utils/system.js';
 
 const app = express();
 export const prisma = new PrismaClient();
 
+console.log("🔌 Connecting to Database URL:", process.env.DATABASE_URL); // Debug Log
+
 const PORT = Number(process.env.PORT) || 5000;
 
-console.log('🔌 Connecting to Database URL:', process.env.DATABASE_URL);
-
-/* -------------------- SECURITY & PERFORMANCE -------------------- */
+/* -------------------- MIDDLEWARES -------------------- */
 
 app.use(helmet());
 app.use(compression());
-app.use(morgan('dev'));
-
-/* -------------------- ✅ CORS (NODE 22 SAFE) -------------------- */
-
-const allowedOrigins = [
-  'https://ev-clinic.kiaantechnology.com',
-  'http://localhost:3000',
-  'http://localhost:5173'
-];
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow server-to-server & Postman
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error('Not allowed by CORS'));
-    },
+    origin: process.env.FRONTEND_URL || true, // ✅ Railway + Local both
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -67,14 +54,7 @@ app.use(
   })
 );
 
-/* ⚠️ IMPORTANT
-   - NO manual OPTIONS handler
-   - NO app.options('*')
-   - cors() already handles preflight correctly
-*/
-
-/* -------------------- BODY PARSERS -------------------- */
-
+app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -92,6 +72,9 @@ app.use('/api/forms', formsRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
 app.use('/api/lab', labRoutes);
 app.use('/api/document-controller', documentRoutes);
+app.use('/api/menu', menuRoutes);
+app.use('/api/public', publicRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 /* -------------------- HEALTH CHECK -------------------- */
 
@@ -106,18 +89,22 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.use(
   (err: any, _req: Request, res: Response, _next: NextFunction) => {
-    res.status(err.statusCode || 500).json({
+    const statusCode = err.statusCode || 500;
+
+    res.status(statusCode).json({
       success: false,
-      message: err.message || 'Internal Server Error'
+      status: err.status || 'error',
+      message: err.message || 'Internal Server Error',
+      error: process.env.NODE_ENV === 'development' ? err : undefined
     });
   }
 );
 
 /* -------------------- SERVER START -------------------- */
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, () => {
   console.log(`
-🚀 EV Clinic HIS Backend
+🚀 EV Clinic HIS Backend (Restarted)
 --------------------------------
 Status : RUNNING
 Port   : ${PORT}

@@ -58,31 +58,67 @@ export const deleteInventory = async (clinicId: number, id: number) => {
 };
 
 export const getPharmacyOrders = async (clinicId: number) => {
-    console.log(`[PHARMACY] Fetching orders for clinic ${clinicId}`);
-    const orders = await prisma.service_order.findMany({
+    console.log(`[PHARMACY] Fetching orders/prescriptions for clinic ${clinicId}`);
+
+    // 1. Get Service Orders for Pharmacy (legacy/quick-orders)
+    const serviceOrders = await prisma.service_order.findMany({
         where: {
             clinicId,
-            type: { in: ['PHARMACY', 'Pharmacy', 'pharmacy'] } // Robust check
+            type: { in: ['PHARMACY', 'Pharmacy', 'pharmacy'] }
         },
         include: {
             patient: { select: { name: true } }
         },
         orderBy: { createdAt: 'desc' }
     });
-    console.log(`[PHARMACY] Found ${orders.length} orders for clinic ${clinicId}`);
-    return orders.map((o: any) => {
-        let items: any[] = [];
-        if (o.result) {
-            try {
-                const parsed = JSON.parse(o.result);
-                if (Array.isArray(parsed?.items)) items = parsed.items;
-            } catch (_) {}
-        }
-        return {
-            ...o,
+
+    // 2. Get Prescriptions from Medical Records (new EMR flow)
+    const prescribedRecords = await prisma.medicalrecord.findMany({
+        where: {
+            clinicId,
+            type: 'PRESCRIPTION',
+            status: { not: 'Dispensed' }
+        },
+        include: {
+            patient: { select: { name: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    const combined = [
+        ...serviceOrders.map((o: any) => ({
+            id: o.id,
             patientName: o.patient?.name,
-            items
-        };
+            testName: o.testName,
+            status: o.testStatus || o.status,
+            paymentStatus: o.paymentStatus,
+            createdAt: o.createdAt,
+            source: 'ORDER'
+        })),
+        ...prescribedRecords.map((r: any) => {
+            const data = JSON.parse(r.data);
+            return {
+                id: r.id,
+                patientName: r.patient?.name,
+                testName: Array.isArray(data.items) ? data.items.map((i: any) => i.medicineName).join(', ') : 'Prescription',
+                status: r.status,
+                paymentStatus: 'Paid',
+                createdAt: r.createdAt,
+                source: 'EMR'
+            };
+        })
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return combined;
+};
+
+export const getPharmacyNotificationsCount = async (clinicId: number) => {
+    return await prisma.notification.count({
+        where: {
+            clinicId,
+            department: 'pharmacy',
+            status: 'unread'
+        }
     });
 };
 
@@ -100,7 +136,7 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
                         price: i.unitPrice ?? i.price
                     }));
                 }
-            } catch (_) {}
+            } catch (_) { }
         }
     }
 
@@ -143,7 +179,7 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
             // Update Order Status
             const order = await tx.service_order.update({
                 where: { id: orderId },
-                data: { status: 'Completed' }
+                data: { testStatus: 'Completed' }
             });
 
             if (serviceDetails.length === 0) {

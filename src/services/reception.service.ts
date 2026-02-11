@@ -1,6 +1,36 @@
 import { prisma } from '../server.js';
 import { AppError } from '../utils/AppError.js';
 
+const getNextToken = async (clinicId: number) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return await prisma.$transaction(async (tx) => {
+        const clinic = await tx.clinic.findUnique({
+            where: { id: clinicId },
+            select: { lastTokenNumber: true, lastTokenDate: true }
+        });
+
+        const clinicDate = clinic?.lastTokenDate ? new Date(clinic.lastTokenDate) : null;
+        if (clinicDate) clinicDate.setHours(0, 0, 0, 0);
+
+        let nextToken = 1;
+        if (clinicDate && clinicDate.getTime() === today.getTime()) {
+            nextToken = (clinic?.lastTokenNumber || 0) + 1;
+        }
+
+        await tx.clinic.update({
+            where: { id: clinicId },
+            data: {
+                lastTokenNumber: nextToken,
+                lastTokenDate: today
+            }
+        });
+
+        return nextToken;
+    });
+};
+
 export const getPatientsByClinic = async (clinicId: number, search?: string) => {
     return await prisma.patient.findMany({
         where: {
@@ -96,22 +126,25 @@ export const registerPatient = async (clinicId: number, data: any) => {
     // If it's a walk-in, create an appointment and a pending invoice
     if (doctorId && fees) {
         const today = new Date();
+        const tokenNumber = await getNextToken(clinicId);
         await prisma.appointment.create({
             data: {
                 clinicId,
                 patientId: patient.id,
                 doctorId: Number(doctorId),
+                tokenNumber,
                 date: today,
                 time: visitTime || today.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Checked In',
+                queueStatus: 'Checked-In',
                 source: 'Walk-in',
-                fees: Number(fees)
+                billingAmount: Number(fees)
             }
         });
 
         await prisma.invoice.create({
             data: {
-                id: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+                id: `INV-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
                 clinicId,
                 patientId: patient.id,
                 doctorId: Number(doctorId),
@@ -316,14 +349,24 @@ export const getReceptionStats = async (clinicId: number) => {
 
     const [todayAppts, totalPatients, pendingApprovals, checkedIn] = await Promise.all([
         prisma.appointment.count({
-            where: { clinicId, date: { gte: today, lte: new Date(new Date().setHours(23, 59, 59, 999)) } }
+            where: {
+                clinicId,
+                date: {
+                    gte: today,
+                    lte: new Date(new Date().setHours(23, 59, 59, 999))
+                }
+            }
         }),
         prisma.patient.count({ where: { clinicId } }),
         prisma.appointment.count({
             where: { clinicId, status: 'Pending' }
         }),
         prisma.appointment.count({
-            where: { clinicId, status: 'Checked In', date: { gte: today } }
+            where: {
+                clinicId,
+                queueStatus: { in: ['Checked-In', 'In-Consultation'] },
+                date: { gte: today, lte: new Date(new Date().setHours(23, 59, 59, 999)) }
+            }
         })
     ]);
 
@@ -353,37 +396,45 @@ export const getReceptionActivities = async (clinicId: number) => {
 
 export const createBooking = async (clinicId: number, data: any) => {
     const { patientId, doctorId, date, time, fees, notes, service } = data;
+    const tokenNumber = await getNextToken(clinicId);
 
     const appointment = await prisma.appointment.create({
         data: {
             clinicId,
             patientId: Number(patientId),
             doctorId: Number(doctorId),
+            tokenNumber,
             date: date ? new Date(date) : new Date(),
             time: time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            status: 'Checked In',
+            status: 'Pending',
+            queueStatus: 'Pending',
             source: 'Walk-in',
-            fees: fees ? Number(fees) : undefined,
-            notes: notes || null
+            billingAmount: fees ? Number(fees) : undefined,
+            notes: notes || null,
+            service: service || 'Consultation'
         },
         include: { patient: true }
     });
 
-    if (fees) {
-        await prisma.invoice.create({
-            data: {
-                id: `INV-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-                clinicId,
-                patientId: Number(patientId),
-                doctorId: Number(doctorId),
-                service: service || 'Patient Consultation',
-                amount: Number(fees),
-                status: 'Pending'
-            }
-        });
+    return appointment;
+};
+
+export const checkInPatient = async (clinicId: number, appointmentId: number) => {
+    const appointment = await prisma.appointment.findUnique({
+        where: { id: appointmentId }
+    });
+
+    if (!appointment || appointment.clinicId !== clinicId) {
+        throw new AppError('Appointment not found', 404);
     }
 
-    return appointment;
+    return await prisma.appointment.update({
+        where: { id: appointmentId },
+        data: {
+            status: 'Checked In',
+            queueStatus: 'Checked-In'
+        }
+    });
 };
 
 export const resetPatientPassword = async (patientId: number, password: string) => {
@@ -432,3 +483,4 @@ export const resetPatientPassword = async (patientId: number, password: string) 
 
     return { success: true };
 };
+

@@ -6,7 +6,7 @@ export const getDoctorQueue = async (clinicId: number, doctorId: number) => {
         where: {
             clinicId,
             doctorId,
-            status: { in: ['Approved', 'Confirmed', 'Checked In'] },
+            queueStatus: 'Checked-In',
             date: {
                 gte: new Date(new Date().setHours(0, 0, 0, 0)),
                 lte: new Date(new Date().setHours(23, 59, 59, 999))
@@ -16,93 +16,141 @@ export const getDoctorQueue = async (clinicId: number, doctorId: number) => {
     });
 };
 
-export const saveAssessment = async (clinicId: number, doctorId: number, payload: any) => {
-    const { patientId, templateId, type, findings, orders = [] } = payload;
+export const saveCompleteEMR = async (clinicId: number, doctorId: number, payload: any) => {
+    const { appointmentId, patientId, assessmentData, prescriptions = [], labRequests = [], radiologyRequests = [], billingAmount } = payload;
 
-    // Save exact copy of orders in the medical record data for viewing later
-    const recordData = { ...findings, ordersSnapshot: orders || [] };
-
-    const assessment = await prisma.medicalrecord.create({
-        data: {
-            clinicId,
-            patientId,
-            doctorId,
-            templateId,
-            type,
-            data: JSON.stringify(recordData),
-            isClosed: true
-        }
-    });
-
-    // --- NEW: Create Consultation Invoice for Accountant ---
-    try {
-        await prisma.invoice.create({
-            data: {
-                id: `CONS-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-                clinicId,
-                patientId,
-                doctorId,
-                service: `Consultation: ${type}`,
-                amount: 150, // Standard Consultation Fee
-                status: 'Pending',
-                date: new Date()
-            }
-        });
-        console.log(`[FINANCE] Consultation invoice created for patient ${patientId}`);
-    } catch (e) {
-        console.error('[FINANCE] Failed to create consultation invoice:', e);
-    }
-
-    // Create Service Orders and Notifications
-    for (const order of orders) {
-        const orderType = String(order.type).toUpperCase();
-        const { testName, details } = order;
-
-        console.log(`[WORKFLOW] Creating ${orderType} order for patient ${patientId} in clinic ${clinicId}`);
-
-        const createdOrder = await prisma.service_order.create({
+    return await prisma.$transaction(async (tx) => {
+        // 1. Save Assessment
+        await tx.medicalrecord.create({
             data: {
                 clinicId,
                 patientId,
                 doctorId,
-                type: orderType,
-                testName,
-                status: 'Pending',
-                result: details // Store instructions here for now
+                type: 'ASSESSMENT',
+                data: JSON.stringify(assessmentData || payload.findings || {}),
+                isClosed: true
             }
         });
 
-        // Notify Department
-        let dept = 'laboratory';
-        if (orderType === 'RADIOLOGY') dept = 'radiology';
-        if (orderType === 'PHARMACY') dept = 'pharmacy';
-
-        await prisma.notification.create({
-            data: {
-                clinicId,
-                department: dept,
-                message: JSON.stringify({
+        // 2. Save Prescriptions
+        for (const presc of prescriptions) {
+            await tx.medicalrecord.create({
+                data: {
+                    clinicId,
                     patientId,
-                    orderId: createdOrder.id,
-                    type: orderType,
-                    details: `${testName} - ${details}`
-                })
-            }
-        });
-    }
+                    doctorId,
+                    type: 'PRESCRIPTION',
+                    data: JSON.stringify(presc),
+                    status: 'Pending' // Pharmacy handles this
+                }
+            });
 
-    // Mark appointment as Completed if exists for today
-    await prisma.appointment.updateMany({
-        where: {
-            clinicId,
-            patientId,
-            doctorId,
-            status: { in: ['Checked In', 'Confirmed', 'Approved'] }
-        },
-        data: { status: 'Completed' }
+            // Notify Pharmacy
+            await tx.notification.create({
+                data: {
+                    clinicId,
+                    department: 'pharmacy',
+                    message: JSON.stringify({
+                        patientId,
+                        type: 'PHARMACY',
+                        action: 'NEW_PRESCRIPTION',
+                        text: `New prescription for Patient ID: ${patientId}`
+                    })
+                }
+            });
+        }
+
+        // 3. Save Lab Requests
+        for (const lab of labRequests) {
+            const order = await tx.service_order.create({
+                data: {
+                    clinicId,
+                    patientId,
+                    doctorId,
+                    type: 'LAB',
+                    testName: lab.testName,
+                    paymentStatus: 'Pending',
+                    testStatus: 'Pending'
+                }
+            });
+
+            await tx.notification.create({
+                data: {
+                    clinicId,
+                    department: 'laboratory',
+                    message: JSON.stringify({
+                        patientId,
+                        orderId: order.id,
+                        type: 'LAB',
+                        action: 'NEW_ORDER',
+                        text: `New lab order: ${lab.testName}`
+                    })
+                }
+            });
+        }
+
+        // 4. Save Radiology Requests
+        for (const rad of radiologyRequests) {
+            const order = await tx.service_order.create({
+                data: {
+                    clinicId,
+                    patientId,
+                    doctorId,
+                    type: 'RADIOLOGY',
+                    testName: rad.testName,
+                    paymentStatus: 'Pending',
+                    testStatus: 'Pending'
+                }
+            });
+
+            await tx.notification.create({
+                data: {
+                    clinicId,
+                    department: 'radiology',
+                    message: JSON.stringify({
+                        patientId,
+                        orderId: order.id,
+                        type: 'RADIOLOGY',
+                        action: 'NEW_ORDER',
+                        text: `New radiology order: ${rad.testName}`
+                    })
+                }
+            });
+        }
+
+        // 5. Update appointment status to Pending-Payment
+        if (appointmentId) {
+            await tx.appointment.update({
+                where: { id: appointmentId },
+                data: {
+                    status: 'Completed',
+                    queueStatus: 'Pending-Payment',
+                    billingAmount: billingAmount ? Number(billingAmount) : undefined
+                }
+            });
+
+            // Update patient status for billing tracking
+            await tx.patient.update({
+                where: { id: patientId },
+                data: { status: 'Pending Payment' }
+            });
+
+            // Create Consultation Invoice
+            await tx.invoice.create({
+                data: {
+                    id: `CONS-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
+                    clinicId,
+                    patientId,
+                    doctorId,
+                    service: 'Consultation Fee',
+                    amount: billingAmount ? Number(billingAmount) : 150,
+                    status: 'Pending'
+                }
+            });
+        }
+
+        return { success: true };
     });
-
-    return assessment;
 };
 
 export const getHistory = async (clinicId: number, patientId: number) => {
@@ -317,7 +365,7 @@ export const getDoctorOrders = async (clinicId: number, doctorId: number) => {
         patientName: o.patient?.name || 'Unknown',
         type: o.type,
         details: o.testName,
-        status: o.status
+        status: o.testStatus || 'Pending'
     }));
 };
 
@@ -350,7 +398,8 @@ export const createOrder = async (clinicId: number, doctorId: number, data: any)
             doctorId,
             type: orderType,
             testName: testName || (typeof items === 'string' ? items : 'Prescription'),
-            status: 'Pending',
+            testStatus: 'Pending',
+            paymentStatus: 'Pending',
             result: JSON.stringify(resultPayload)
         }
     });

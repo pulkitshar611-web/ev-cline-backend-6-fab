@@ -409,9 +409,13 @@ export const toggleClinicStatus = async (id: number) => {
     const clinic = await prisma.clinic.findUnique({ where: { id } });
     if (!clinic) throw new AppError('Clinic not found', 404);
 
+    const isActivating = clinic.status !== 'active';
     const updatedClinic = await prisma.clinic.update({
         where: { id },
-        data: { status: clinic.status === 'active' ? 'inactive' : 'active' }
+        data: {
+            status: isActivating ? 'active' : 'inactive',
+            isActive: isActivating
+        }
     });
 
     await prisma.auditlog.create({
@@ -495,7 +499,10 @@ export const updateClinicModules = async (id: number, modules: any) => {
 
 // ==================== STAFF ====================
 export const createClinicAdmin = async (clinicId: number, userData: any) => {
-    const { email, password, name, phone, role } = userData;
+    const { email, password, name, phone, role, roles } = userData;
+    const finalRoles = roles || (role ? [role] : ['ADMIN']);
+    const primaryRole = finalRoles[0].toUpperCase();
+
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
@@ -506,7 +513,7 @@ export const createClinicAdmin = async (clinicId: number, userData: any) => {
                 password: hashedPassword,
                 name,
                 phone,
-                role: (role || 'ADMIN').toUpperCase() as any
+                role: primaryRole as any
             }
         });
     }
@@ -515,7 +522,8 @@ export const createClinicAdmin = async (clinicId: number, userData: any) => {
         data: {
             userId: user.id,
             clinicId,
-            role: (role || 'ADMIN').toUpperCase() as any
+            role: primaryRole as any,
+            roles: JSON.stringify(finalRoles.map((r: string) => r.toUpperCase()))
         },
         include: {
             user: {
@@ -528,7 +536,7 @@ export const createClinicAdmin = async (clinicId: number, userData: any) => {
         data: {
             action: 'Clinic Admin Created',
             performedBy: 'SUPER_ADMIN',
-            details: JSON.stringify({ userName: name, clinicId, role: staff.role })
+            details: JSON.stringify({ userName: name, clinicId, roles: finalRoles })
         }
     });
 
@@ -544,17 +552,27 @@ export const getAllStaff = async () => {
         }
     });
 
-    return staff.map((s: any) => ({
-        id: s.id,
-        userId: s.userId,
-        name: s.user.name,
-        email: s.user.email,
-        phone: s.user.phone,
-        role: s.role,
-        clinics: [s.clinicId],
-        status: s.user.status,
-        joined: s.createdAt
-    }));
+    return staff.map((s: any) => {
+        let roles = [s.role];
+        try {
+            if (s.roles) roles = JSON.parse(s.roles);
+        } catch (e) {
+            roles = [s.role];
+        }
+
+        return {
+            id: s.id,
+            userId: s.userId,
+            name: s.user.name,
+            email: s.user.email,
+            phone: s.user.phone,
+            role: s.role,
+            roles: roles,
+            clinics: [s.clinicId],
+            status: s.user.status,
+            joined: s.createdAt
+        };
+    });
 };
 
 export const updateStaff = async (id: number, data: any) => {
@@ -565,13 +583,18 @@ export const updateStaff = async (id: number, data: any) => {
 
     if (!staff) throw new AppError('Staff not found', 404);
 
-    if (data.name || data.email || data.phone) {
+    const { roles, role } = data;
+    const finalRoles = roles || (role ? [role] : undefined);
+    const primaryRole = finalRoles ? finalRoles[0].toUpperCase() : undefined;
+
+    if (data.name || data.email || data.phone || primaryRole) {
         await prisma.user.update({
             where: { id: staff.userId },
             data: {
                 name: data.name || undefined,
                 email: data.email || undefined,
-                phone: data.phone || undefined
+                phone: data.phone || undefined,
+                role: primaryRole ? primaryRole as any : undefined
             }
         });
     }
@@ -579,7 +602,8 @@ export const updateStaff = async (id: number, data: any) => {
     const updatedStaff = await prisma.clinicstaff.update({
         where: { id },
         data: {
-            role: data.role ? data.role.toUpperCase() : undefined,
+            role: primaryRole ? primaryRole as any : undefined,
+            roles: finalRoles ? JSON.stringify(finalRoles.map((r: string) => r.toUpperCase())) : undefined,
             department: data.department || undefined,
             specialty: data.specialty || undefined
         },
@@ -594,6 +618,13 @@ export const updateStaff = async (id: number, data: any) => {
         }
     });
 
+    let returnRoles = [updatedStaff.role];
+    try {
+        if (updatedStaff.roles) returnRoles = JSON.parse(updatedStaff.roles);
+    } catch (e) {
+        returnRoles = [updatedStaff.role];
+    }
+
     return {
         id: updatedStaff.id,
         userId: updatedStaff.userId,
@@ -601,6 +632,7 @@ export const updateStaff = async (id: number, data: any) => {
         email: (updatedStaff as any).user.email,
         phone: (updatedStaff as any).user.phone,
         role: updatedStaff.role,
+        roles: returnRoles,
         clinics: [updatedStaff.clinicId],
         status: (updatedStaff as any).user.status,
         joined: (updatedStaff as any).user.joined ? (updatedStaff as any).user.joined.toISOString().split('T')[0] : null
@@ -633,6 +665,13 @@ export const toggleStaffStatus = async (id: number) => {
         data: { status: (staff as any).user.status === 'active' ? 'inactive' : 'active' }
     });
 
+    let roles = [staff.role];
+    try {
+        if (staff.roles) roles = JSON.parse(staff.roles);
+    } catch (e) {
+        roles = [staff.role];
+    }
+
     return {
         id: staff.id,
         userId: staff.userId,
@@ -640,7 +679,7 @@ export const toggleStaffStatus = async (id: number) => {
         name: updatedUser.name,
         email: updatedUser.email,
         role: staff.role,
-        roles: [staff.role],
+        roles: roles,
         department: staff.department,
         specialty: staff.specialty,
         status: updatedUser.status,

@@ -18,6 +18,7 @@ router.get('/patients/:patientId/appointments', receptionController.getPatientAp
 router.post('/appointments', restrictTo('RECEPTIONIST', 'ADMIN'), receptionController.createAppointment);
 
 router.patch('/appointments/:id/status', restrictTo('RECEPTIONIST', 'ADMIN'), receptionController.updateApptStatus);
+router.post('/appointments/:id/check-in', restrictTo('RECEPTIONIST', 'ADMIN'), receptionController.checkIn);
 
 router.patch('/patients/:id/password', restrictTo('RECEPTIONIST', 'ADMIN'), receptionController.resetPassword);
 

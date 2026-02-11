@@ -53,9 +53,48 @@ export const getInvoices = async (clinicId: number) => {
 };
 
 export const updateInvoiceStatus = async (clinicId: number, id: string, status: string) => {
-    return await prisma.invoice.update({
-        where: { id, clinicId },
-        data: { status }
+    return await prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.update({
+            where: { id, clinicId },
+            data: { status }
+        });
+
+        if (status === 'Paid') {
+            // Sync with appointment queue
+            const appointment = await tx.appointment.findFirst({
+                where: {
+                    clinicId,
+                    patientId: invoice.patientId,
+                    queueStatus: 'Pending-Payment'
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+
+            if (appointment) {
+                await tx.appointment.update({
+                    where: { id: appointment.id },
+                    data: {
+                        isPaid: true,
+                        queueStatus: 'Paid'
+                    }
+                });
+
+                // Release Lab/Radiology orders
+                await tx.service_order.updateMany({
+                    where: {
+                        clinicId,
+                        patientId: invoice.patientId,
+                        doctorId: appointment.doctorId,
+                        paymentStatus: 'Pending'
+                    },
+                    data: {
+                        paymentStatus: 'Paid'
+                    }
+                });
+            }
+        }
+
+        return invoice;
     });
 };
 

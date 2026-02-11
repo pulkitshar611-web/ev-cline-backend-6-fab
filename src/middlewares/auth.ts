@@ -93,9 +93,17 @@ export const restrictToClinicRole = (...roles: string[]) => {
                 return next(new AppError('You do not have permission to perform this action', 403));
             }
 
-            const clinicRole = staffRecord.role;
-            if (!roles.includes(clinicRole)) {
-                console.log(`[403 ERROR] Denied: User ${req.user?.email} | Clinic Role: ${clinicRole} | Expected: ${roles.join(',')}`);
+            let userRoles: string[] = [];
+            try {
+                userRoles = staffRecord.roles ? JSON.parse(staffRecord.roles) : [staffRecord.role];
+            } catch (e) {
+                userRoles = [staffRecord.role];
+            }
+
+            const hasPermission = roles.some(role => userRoles.includes(role));
+
+            if (!hasPermission) {
+                console.log(`[403 ERROR] Denied: User ${req.user?.email} | Clinic Roles: ${userRoles.join(', ')} | Expected: ${roles.join(',')}`);
                 return next(new AppError('You do not have permission to perform this action', 403));
             }
 

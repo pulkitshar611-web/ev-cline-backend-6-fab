@@ -7,7 +7,7 @@ async function testApi() {
     try {
         // 1. Login
         console.log('Logging in...');
-        const loginRes = await axios.post('http://localhost:5000/api/auth/login', { email, password });
+        const loginRes = await axios.post('https://ev-clinic-production.up.railway.app/api/auth/login', { email, password });
         const token = loginRes.data.data.token;
         const user = loginRes.data.data.user;
         const clinicId = user.clinics[0];
@@ -16,7 +16,7 @@ async function testApi() {
 
         // 2. Fetch Templates
         console.log('Fetching templates...');
-        const templatesRes = await axios.get('http://localhost:5000/api/doctor/templates', {
+        const templatesRes = await axios.get('https://ev-clinic-production.up.railway.app/api/doctor/templates', {
             headers: {
                 Authorization: `Bearer ${token}`,
                 'x-clinic-id': clinicId.toString()

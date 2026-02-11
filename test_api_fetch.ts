@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 async function testFetch() {
-    const LOGIN_URL = 'http://localhost:5000/api/auth/login';
-    const TEMPLATES_URL = 'http://localhost:5000/api/doctor/templates';
+    const LOGIN_URL = 'https://ev-clinic-production.up.railway.app/api/auth/login';
+    const TEMPLATES_URL = 'https://ev-clinic-production.up.railway.app/api/doctor/templates';
 
     try {
         console.log('Logging in as doctor...');

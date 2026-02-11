@@ -2,98 +2,57 @@ import { prisma } from '../server.js';
 import { AppError } from '../utils/AppError.js';
 
 export const getLabOrders = async (clinicId: number, type: 'LAB' | 'RADIOLOGY', statusFilter?: string) => {
-    console.log(`[LAB/RAD] Fetching ${type} orders for clinic ${clinicId} | Status filter: ${statusFilter || 'all'}`);
+    console.log(`[LAB/RAD] Fetching ${type} orders for clinic ${clinicId} | Status: ${statusFilter || 'all'}`);
 
-    // Normalize type for search
     const typeList = type === 'LAB' ? ['LAB', 'Laboratory', 'laboratory'] : ['RADIOLOGY', 'Radiology', 'radiology', 'RAD'];
 
     const where: any = {
         clinicId,
-        type: { in: typeList }
+        type: { in: typeList },
+        paymentStatus: 'Paid' // Only visible after payment
     };
 
-    // Add status filter if provided
     if (statusFilter) {
-        where.status = statusFilter;
+        where.testStatus = statusFilter;
     }
 
-    const orders = await prisma.service_order.findMany({
+    return await prisma.service_order.findMany({
         where,
         include: {
             patient: { select: { name: true } }
         },
         orderBy: { createdAt: 'desc' }
     });
-
-    console.log(`[LAB/RAD] Found ${orders.length} ${type} orders for clinic ${clinicId}`);
-    return orders;
 };
 
-export const completeLabOrder = async (clinicId: number, orderId: number, data: any) => {
-    const { result, price, paid } = data;
-
-    console.log(`[LAB/RAD Service] Completing Order ${orderId} | Price: ${price} | Paid: ${paid}`);
-
-    try {
-        return await prisma.$transaction(async (tx) => {
-            const order = await tx.service_order.update({
-                where: { id: orderId },
-                data: {
-                    status: 'Completed',
-                    // Don't overwrite result here immediately, we will do it in second update
-                }
-            });
-
-            // Create Invoice for the test
-            const invoice = await tx.invoice.create({
-                data: {
-                    id: `${String(order.type).startsWith('L') ? 'LAB' : 'RAD'}-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-                    clinicId,
-                    patientId: order.patientId,
-                    doctorId: order.doctorId,
-                    service: `${order.type}: ${order.testName}`,
-                    amount: Number(price) || 0,
-                    status: paid ? 'Paid' : 'Pending',
-                    date: new Date()
-                }
-            });
-
-            // Store result AND invoice info in the order result field (as JSON)
-            const resultData = {
-                findings: result,
-                invoiceId: invoice.id,
-                amount: Number(price) || 0,
-                paid
-            };
-
-            await tx.service_order.update({
-                where: { id: orderId },
-                data: {
-                    result: JSON.stringify(resultData)
-                }
-            });
-
-            return { order, invoice };
-        }, {
-            timeout: 20000
-        });
-    } catch (error) {
-        console.error(`[LAB/RAD Service] Error completing order ${orderId}:`, error);
-        throw error;
+export const updateLabStatus = async (clinicId: number, orderId: number, status: string, resultData?: string) => {
+    // Status Flow: Pending -> Sample Collected -> Result Uploaded -> Published
+    const data: any = { testStatus: status };
+    if (resultData) {
+        data.result = resultData;
     }
+
+    return await prisma.service_order.update({
+        where: { id: orderId, clinicId },
+        data
+    });
 };
 
 export const rejectLabOrder = async (clinicId: number, orderId: number) => {
     return await prisma.service_order.update({
         where: { id: orderId, clinicId },
-        data: { status: 'Rejected' }
+        data: { testStatus: 'Rejected' }
     });
 };
 
 export const collectSample = async (clinicId: number, orderId: number) => {
-    console.log(`[LAB/RAD Service] Marking sample as collected for order ${orderId}`);
-    return await prisma.service_order.update({
-        where: { id: orderId, clinicId },
-        data: { status: 'Sample Collected' }
-    });
+    return await updateLabStatus(clinicId, orderId, 'Sample Collected');
+};
+
+export const uploadReport = async (clinicId: number, orderId: number, reportContent: string) => {
+    return await updateLabStatus(clinicId, orderId, 'Result Uploaded', reportContent);
+};
+
+export const publishReport = async (clinicId: number, orderId: number) => {
+    return await updateLabStatus(clinicId, orderId, 'Published');
 };

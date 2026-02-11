@@ -57,35 +57,41 @@ export const getMyMedicalRecords = async (userId: number, email: string) => {
 
     const patientIds = patientRecords.map(p => p.id);
 
-    if (patientIds.length === 0) return [];
+    if (patientIds.length === 0) return { assessments: [], serviceOrders: [], prescriptions: [] };
 
-    const [records, serviceOrders] = await Promise.all([
+    const [records, serviceOrders, pRecords] = await Promise.all([
         prisma.medicalrecord.findMany({
             where: {
-                patientId: { in: patientIds }
-            },
-            include: {
-                clinic: { select: { name: true } },
-                formtemplate: { select: { name: true } }
-            },
-            orderBy: {
-                visitDate: 'desc'
-            }
-        }),
-        prisma.service_order.findMany({
-            where: {
-                patientId: { in: patientIds }
+                patientId: { in: patientIds },
+                type: { in: ['ASSESSMENT', 'NOTE'] }
             },
             include: {
                 clinic: { select: { name: true } }
             },
-            orderBy: {
-                createdAt: 'desc'
-            }
+            orderBy: { visitDate: 'desc' }
+        }),
+        prisma.service_order.findMany({
+            where: {
+                patientId: { in: patientIds },
+                testStatus: 'Published' // Only show published reports to patient
+            },
+            include: {
+                clinic: { select: { name: true } }
+            },
+            orderBy: { createdAt: 'desc' }
+        }),
+        prisma.medicalrecord.findMany({
+            where: {
+                patientId: { in: patientIds },
+                type: 'PRESCRIPTION'
+            },
+            include: {
+                clinic: { select: { name: true } }
+            },
+            orderBy: { createdAt: 'desc' }
         })
     ]);
 
-    // Parse the JSON data field and return aggregated records
     return {
         assessments: records.map(record => ({
             ...record,
@@ -93,9 +99,39 @@ export const getMyMedicalRecords = async (userId: number, email: string) => {
         })),
         serviceOrders: serviceOrders.map(order => ({
             ...order,
-            result: order.result && order.result.startsWith('{') ? JSON.parse(order.result) : order.result
+            result: order.result && (order.result.startsWith('{') || order.result.startsWith('[')) ? JSON.parse(order.result) : order.result
+        })),
+        prescriptions: pRecords.map(p => ({
+            ...p,
+            data: p.data ? JSON.parse(p.data) : {}
         }))
     };
+};
+
+export const getMyDocuments = async (email: string) => {
+    const patients = await prisma.patient.findMany({
+        where: { email },
+        select: { id: true }
+    });
+    const patientIds = patients.map(p => p.id);
+
+    return await prisma.patient_document.findMany({
+        where: { patientId: { in: patientIds } },
+        include: { clinic: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' }
+    });
+};
+
+export const uploadPatientDocument = async (clinicId: number, patientId: number, data: any) => {
+    return await prisma.patient_document.create({
+        data: {
+            clinicId,
+            patientId: Number(patientId),
+            type: data.type || 'OTHER',
+            name: data.name,
+            url: data.url
+        }
+    });
 };
 
 export const getMyInvoices = async (userId: number, email: string) => {

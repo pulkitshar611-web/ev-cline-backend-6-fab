@@ -22,7 +22,7 @@ export const getQueue = asyncHandler(async (req: AuthRequest, res: Response) => 
 
 export const createAssessment = asyncHandler(async (req: AuthRequest, res: Response) => {
     const doctorId = await resolveDoctorId(req.user!.id, req.clinicId!);
-    const assessment = await doctorService.saveAssessment(req.clinicId!, doctorId, req.body);
+    const assessment = await doctorService.saveCompleteEMR(req.clinicId!, doctorId, req.body);
     res.status(201).json({ status: 'success', data: assessment });
 });
 
