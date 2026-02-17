@@ -325,7 +325,11 @@ export const updateBookingStatus = async (clinicId: number, id: number, status: 
 
     return await prisma.appointment.update({
         where: { id },
-        data: { status }
+        data: {
+            status,
+            // Sync queueStatus if checking in via generic status update
+            ...(status === 'Checked In' ? { queueStatus: 'Checked-In' } : {})
+        }
     });
 };
 
@@ -364,7 +368,8 @@ export const getReceptionStats = async (clinicId: number) => {
         prisma.appointment.count({
             where: {
                 clinicId,
-                queueStatus: { in: ['Checked-In', 'In-Consultation'] },
+                // Count all active appointments for today that are not finished or cancelled
+                status: { notIn: ['Cancelled', 'Rejected', 'Completed'] },
                 date: { gte: today, lte: new Date(new Date().setHours(23, 59, 59, 999)) }
             }
         })
@@ -395,8 +400,17 @@ export const getReceptionActivities = async (clinicId: number) => {
 };
 
 export const createBooking = async (clinicId: number, data: any) => {
-    const { patientId, doctorId, date, time, fees, notes, service } = data;
-    const tokenNumber = await getNextToken(clinicId);
+    const { patientId, doctorId, date, time, fees, notes, service, status } = data;
+    const finalStatus = status || 'Pending';
+
+    let tokenNumber = null;
+    let queueStatus = 'Pending';
+
+    // Only generate token if explicitly checking in (e.g. Walk-in)
+    if (finalStatus === 'Checked In' || finalStatus === 'Checked-In') {
+        tokenNumber = await getNextToken(clinicId);
+        queueStatus = 'Checked-In';
+    }
 
     const appointment = await prisma.appointment.create({
         data: {
@@ -406,8 +420,8 @@ export const createBooking = async (clinicId: number, data: any) => {
             tokenNumber,
             date: date ? new Date(date) : new Date(),
             time: time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            status: 'Pending',
-            queueStatus: 'Pending',
+            status: finalStatus,
+            queueStatus: queueStatus,
             source: 'Walk-in',
             billingAmount: fees ? Number(fees) : undefined,
             notes: notes || null,
@@ -428,11 +442,18 @@ export const checkInPatient = async (clinicId: number, appointmentId: number) =>
         throw new AppError('Appointment not found', 404);
     }
 
+    // Generate token if not already assigned
+    let tokenNumber = appointment.tokenNumber;
+    if (!tokenNumber) {
+        tokenNumber = await getNextToken(clinicId);
+    }
+
     return await prisma.appointment.update({
         where: { id: appointmentId },
         data: {
             status: 'Checked In',
-            queueStatus: 'Checked-In'
+            queueStatus: 'Checked-In',
+            tokenNumber
         }
     });
 };

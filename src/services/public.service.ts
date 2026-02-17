@@ -5,8 +5,14 @@ import { AppError } from '../utils/AppError.js';
 const prisma = new PrismaClient();
 
 export const getClinicBySubdomain = async (subdomain: string) => {
-    const clinic = await prisma.clinic.findUnique({
-        where: { subdomain },
+    // Allow lookup by subdomain OR id (for robustness)
+    const clinic = await prisma.clinic.findFirst({
+        where: {
+            OR: [
+                { subdomain: subdomain },
+                { id: !isNaN(Number(subdomain)) ? Number(subdomain) : -1 }
+            ]
+        },
         select: {
             id: true,
             name: true,
@@ -142,7 +148,13 @@ export const createPublicBooking = async (data: any) => {
 export const getLiveTokens = async (subdomain: string) => {
     const clinic = await prisma.clinic.findUnique({
         where: { subdomain },
-        select: { id: true }
+        select: {
+            id: true,
+            name: true,
+            logo: true,
+            brandingColor: true,
+            location: true
+        }
     });
     if (!clinic) throw new AppError('Clinic not found', 404);
 
@@ -156,27 +168,20 @@ export const getLiveTokens = async (subdomain: string) => {
                 gte: today,
                 lte: new Date(new Date().setHours(23, 59, 59, 999))
             },
-            queueStatus: { in: ['Checked-In', 'In-Consultation'] }
+            tokenNumber: { not: null }
         },
         include: {
-            patient: { select: { name: true } },
-            clinic: { select: { name: true } }
+            patient: { select: { name: true } }
         },
         orderBy: { tokenNumber: 'asc' }
     });
 
-    // Get doctor names separately as they are in clinicstaff
-    const doctorIds = [...new Set(appointments.map(a => a.doctorId))];
-    const doctors = await prisma.clinicstaff.findMany({
-        where: { id: { in: doctorIds } },
-        include: { user: { select: { name: true } } }
-    });
-    const doctorMap = new Map(doctors.map(d => [d.id, d.user.name]));
-
-    return appointments.map(a => ({
+    const queue = appointments.map(a => ({
         tokenNumber: a.tokenNumber,
-        status: a.queueStatus,
-        patientName: a.patient.name.split(' ')[0] + ' ***', // Privacy
-        doctorName: doctorMap.get(a.doctorId) || 'Consultant'
+        status: a.queueStatus || a.status,
+        patientName: a.patient.name,
+        id: a.id
     }));
+
+    return { clinic, queue };
 };

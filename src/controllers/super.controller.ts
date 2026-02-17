@@ -5,9 +5,14 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 
 // ==================== CLINICS ====================
 export const createClinic = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const clinic = await superService.createClinic(req.body);
+    const data = { ...req.body };
+    if (req.file) {
+        data.logo = `/uploads/logos/${req.file.filename}`;
+    }
+    const clinic = await superService.createClinic(data);
     res.status(201).json({ success: true, message: 'Clinic created successfully', data: clinic });
 });
+
 
 export const getClinics = asyncHandler(async (req: AuthRequest, res: Response) => {
     const clinics = await superService.getClinics();
@@ -15,9 +20,14 @@ export const getClinics = asyncHandler(async (req: AuthRequest, res: Response) =
 });
 
 export const updateClinic = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const clinic = await superService.updateClinic(Number(req.params.id), req.body);
+    const data = { ...req.body };
+    if (req.file) {
+        data.logo = `/uploads/logos/${req.file.filename}`;
+    }
+    const clinic = await superService.updateClinic(Number(req.params.id), data);
     res.status(200).json({ success: true, message: 'Clinic updated successfully', data: clinic });
 });
+
 
 export const toggleClinicStatus = asyncHandler(async (req: AuthRequest, res: Response) => {
     const clinic = await superService.toggleClinicStatus(Number(req.params.id));

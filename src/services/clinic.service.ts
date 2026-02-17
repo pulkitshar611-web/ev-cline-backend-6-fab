@@ -40,6 +40,34 @@ export const getClinicStats = async (clinicId: number) => {
     };
 };
 
+export const getClinicContext = async (clinicId: number) => {
+    const clinic = await prisma.clinic.findUnique({
+        where: { id: clinicId }
+    });
+    if (!clinic) throw new AppError('Clinic not found', 404);
+
+    let modules = { pharmacy: true, radiology: true, laboratory: true, billing: true };
+    if (clinic.modules) {
+        try {
+            modules = typeof clinic.modules === 'string' ? JSON.parse(clinic.modules) : clinic.modules;
+        } catch (e) {
+            console.error('Failed to parse clinic modules:', e);
+        }
+    }
+
+    return {
+        id: clinic.id,
+        name: clinic.name,
+        location: clinic.location,
+        contact: clinic.contact,
+        email: clinic.email,
+        subdomain: clinic.subdomain,
+        modules,
+        brandingColor: clinic.brandingColor,
+        status: clinic.status
+    };
+};
+
 export const getClinicActivities = async (clinicId: number) => {
     const logs = await prisma.auditlog.findMany({
         where: { clinicId },
@@ -322,14 +350,15 @@ export const getFormTemplates = async (clinicId: number) => {
 };
 
 export const createFormTemplate = async (clinicId: number, data: any) => {
-    const { name, specialty, fields, status } = data;
+    const { name, specialty, fields, status, doctorId } = data;
     const template = await prisma.formtemplate.create({
         data: {
             clinicId,
             name,
             specialty: specialty || 'General',
             fields: typeof fields === 'string' ? fields : JSON.stringify(fields),
-            status: status || 'published'
+            status: status || 'published',
+            doctorId: doctorId ? Number(doctorId) : null
         }
     });
 

@@ -6,7 +6,7 @@ import { startTime } from '../utils/system.js';
 // ==================== CLINICS ====================
 export const createClinic = async (data: any) => {
     const { name, location, email, contact, subscriptionDuration = 1, subscriptionPlan = 'Monthly', manualDays = 30, password, numberOfUsers = 5 } = data;
-
+    console.log(data.logo)
     if (!name || !email || !contact || !password) {
         throw new AppError('Name, Email, Contact Number, and Password are all required.', 400);
     }
@@ -40,6 +40,7 @@ export const createClinic = async (data: any) => {
                 location,
                 email,
                 contact,
+                logo: typeof data.logo === 'string' ? data.logo : null,
                 status: 'active',
                 modules: JSON.stringify({ pharmacy: true, radiology: true, laboratory: true, billing: true }),
                 subscriptionPlan,
@@ -49,6 +50,7 @@ export const createClinic = async (data: any) => {
                 userLimit: Number(numberOfUsers)
             }
         });
+
 
         // Create the first admin user for this clinic
         let user = await tx.user.findUnique({ where: { email } });
@@ -336,6 +338,11 @@ export const getSuperAdminReports = async (startDate?: string, endDate?: string)
 export const updateClinic = async (id: number, data: any) => {
     // Extract password and other non-clinic fields
     const { password, subscriptionDuration, manualDays, ...clinicData } = data;
+
+    // Sanitize logo to ensure it's a string path or removed if invalid
+    if (clinicData.logo && typeof clinicData.logo !== 'string') {
+        delete (clinicData as any).logo;
+    }
 
     // If password is provided and not empty, update the admin user's password
     if (password && password.trim() !== '') {

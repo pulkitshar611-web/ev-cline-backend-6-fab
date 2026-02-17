@@ -34,7 +34,7 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
 
     // Stats for ADMIN
     if (normalizedRole === 'ADMIN') {
-        const [totalStaff, totalPatients, todayAppts, todayRevenueAgg, pendingBillsAgg] = await Promise.all([
+        const [totalStaff, totalPatients, todayAppts, todayRevenueAgg, pendingBillsAgg, totalAppts] = await Promise.all([
             prisma.clinicstaff.count({ where: { clinicId } }),
             prisma.patient.count({ where: { clinicId } }),
             prisma.appointment.count({ where: { clinicId, date: { gte: today, lt: tomorrow } } }),
@@ -45,12 +45,14 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
             prisma.invoice.aggregate({
                 where: { clinicId, status: 'Pending' },
                 _sum: { amount: true }
-            })
+            }),
+            prisma.appointment.count({ where: { clinicId } })
         ]);
         return {
             totalStaff,
             totalPatients,
             todayAppointments: todayAppts,
+            totalAppointments: totalAppts,
             todayRevenue: Number(todayRevenueAgg._sum.amount || 0),
             pendingBills: Number(pendingBillsAgg._sum.amount || 0)
         };

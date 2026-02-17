@@ -57,6 +57,8 @@ app.use(
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static('uploads'));
+
 
 /* -------------------- ROUTES -------------------- */
 
@@ -90,6 +92,8 @@ app.get('/health', (_req: Request, res: Response) => {
 app.use(
   (err: any, _req: Request, res: Response, _next: NextFunction) => {
     const statusCode = err.statusCode || 500;
+    console.error(`[GLOBAL ERROR HANDLER] Status: ${statusCode} | Message: ${err.message}`);
+    if (statusCode === 500) console.error(err);
 
     res.status(statusCode).json({
       success: false,

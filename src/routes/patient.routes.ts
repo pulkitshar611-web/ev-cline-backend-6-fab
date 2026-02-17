@@ -22,4 +22,10 @@ router.post('/book', patientController.bookAppointment);
 
 router.get('/doctors/:clinicId', patientController.getClinicDoctors);
 
+// Patient Document Management Routes
+router.post('/documents', patientController.uploadPatientDocument);
+router.get('/documents/:patientId', patientController.getPatientDocuments);
+router.delete('/documents/:documentId', patientController.deletePatientDocument);
+
 export default router;
+

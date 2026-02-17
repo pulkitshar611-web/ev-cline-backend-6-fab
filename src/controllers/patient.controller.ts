@@ -103,3 +103,40 @@ export const publicBookAppointment = async (req: Request, res: Response, next: N
         next(error);
     }
 };
+
+// Patient Document Management
+export const uploadPatientDocument = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const authReq = req as AuthRequest;
+        const clinicId = authReq.clinicId!;
+        const document = await patientService.uploadPatientDocument(clinicId, req.body);
+        res.json({ success: true, data: document });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getPatientDocuments = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const authReq = req as AuthRequest;
+        const clinicId = authReq.clinicId!;
+        const { patientId } = req.params;
+        const documents = await patientService.getPatientDocuments(clinicId, Number(patientId));
+        res.json({ success: true, data: documents });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const deletePatientDocument = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const authReq = req as AuthRequest;
+        const clinicId = authReq.clinicId!;
+        const { documentId } = req.params;
+        await patientService.deletePatientDocument(clinicId, Number(documentId));
+        res.json({ success: true, message: 'Document deleted successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+

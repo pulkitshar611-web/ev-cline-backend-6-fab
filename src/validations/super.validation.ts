@@ -5,8 +5,11 @@ export const createClinicSchema = z.object({
     location: z.string().min(2, 'Address is too short'),
     email: z.string().email(),
     contact: z.string().min(8, 'Phone is too short'),
-    subdomain: z.string().optional()
+    subdomain: z.string().optional(),
+    logo: z.any().optional()
 });
+
+
 
 export const createStaffSchema = z.object({
     name: z.string().min(2),

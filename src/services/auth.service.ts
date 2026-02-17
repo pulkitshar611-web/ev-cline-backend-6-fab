@@ -21,6 +21,13 @@ import { sendOTP } from './mail.service.js';
 export const login = async (data: any, ip: string, device: string) => {
     const { email, password, captchaValue } = data;
 
+    console.log(`[DEBUG] Attempting login for email: ${email}`);
+
+    if (!prisma) {
+        console.error('[CRITICAL] Prisma client is undefined! Possible circular dependency.');
+        throw new Error('Database client not initialized');
+    }
+
     // 1. Database Check
     const user = await prisma.user.findUnique({
         where: { email }
@@ -254,14 +261,24 @@ export const getMyClinics = async (userId: number) => {
     // If Super Admin, show all clinics
     if (user.role === 'SUPER_ADMIN') {
         const allClinics = await prisma.clinic.findMany();
-        return allClinics.map((clinic: any) => ({
-            id: clinic.id,
-            name: clinic.name,
-            role: 'SUPER_ADMIN',
-            modules: clinic.modules,
-            location: clinic.location,
-            status: clinic.status
-        }));
+        return allClinics.map((clinic: any) => {
+            let modules = { pharmacy: true, radiology: true, laboratory: true, billing: true };
+            if (clinic.modules) {
+                try {
+                    modules = typeof clinic.modules === 'string'
+                        ? JSON.parse(clinic.modules)
+                        : clinic.modules;
+                } catch (e) { }
+            }
+            return {
+                id: clinic.id,
+                name: clinic.name,
+                role: 'SUPER_ADMIN',
+                modules,
+                location: clinic.location,
+                status: clinic.status
+            };
+        });
     }
 
     // For other users, return clinics they are assigned to
@@ -273,14 +290,27 @@ export const getMyClinics = async (userId: number) => {
             seen.add(record.clinic.id);
             return true;
         })
-        .map((record: any) => ({
-            id: record.clinic.id,
-            name: record.clinic.name,
-            role: record.role,
-            modules: record.clinic.modules,
-            location: record.clinic.location,
-            status: record.clinic.status
-        }));
+        .map((record: any) => {
+            let modules = { pharmacy: true, radiology: true, laboratory: true, billing: true };
+            if (record.clinic.modules) {
+                try {
+                    modules = typeof record.clinic.modules === 'string'
+                        ? JSON.parse(record.clinic.modules)
+                        : record.clinic.modules;
+                } catch (e) {
+                    console.error('Failed to parse clinic modules:', e);
+                }
+            }
+
+            return {
+                id: record.clinic.id,
+                name: record.clinic.name,
+                role: record.role,
+                modules,
+                location: record.clinic.location,
+                status: record.clinic.status
+            };
+        });
 };
 
 export const selectClinic = async (userId: number, clinicId: number, role: string, ip: string, device: string) => {

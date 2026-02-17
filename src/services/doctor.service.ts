@@ -21,11 +21,14 @@ export const saveCompleteEMR = async (clinicId: number, doctorId: number, payloa
 
     return await prisma.$transaction(async (tx) => {
         // 1. Save Assessment
+        const recordTemplateId = assessmentData?.templateId ? Number(assessmentData.templateId) : null;
+
         await tx.medicalrecord.create({
             data: {
                 clinicId,
                 patientId,
                 doctorId,
+                templateId: recordTemplateId,
                 type: 'ASSESSMENT',
                 data: JSON.stringify(assessmentData || payload.findings || {}),
                 isClosed: true
@@ -170,7 +173,7 @@ export const getHistory = async (clinicId: number, patientId: number) => {
 };
 
 export const getPatientFullProfile = async (clinicId: number, patientId: number) => {
-    const [patient, medicalRecords, serviceOrders] = await Promise.all([
+    const [patient, medicalRecords, serviceOrders, documents, appointments, invoices] = await Promise.all([
         prisma.patient.findUnique({
             where: { id: patientId }
         }),
@@ -182,6 +185,18 @@ export const getPatientFullProfile = async (clinicId: number, patientId: number)
         prisma.service_order.findMany({
             where: { clinicId, patientId },
             orderBy: { createdAt: 'desc' }
+        }),
+        prisma.patient_document.findMany({
+            where: { clinicId, patientId },
+            orderBy: { createdAt: 'desc' }
+        }),
+        prisma.appointment.findMany({
+            where: { clinicId, patientId },
+            orderBy: { date: 'desc' }
+        }),
+        prisma.invoice.findMany({
+            where: { clinicId, patientId },
+            orderBy: { date: 'desc' }
         })
     ]);
 
@@ -196,7 +211,10 @@ export const getPatientFullProfile = async (clinicId: number, patientId: number)
         serviceOrders: serviceOrders.map(o => ({
             ...o,
             result: o.result && (o.result.startsWith('{') || o.result.startsWith('[')) ? JSON.parse(o.result) : o.result
-        }))
+        })),
+        documents,
+        appointments,
+        invoices
     };
 };
 
@@ -324,15 +342,26 @@ export const getTemplateById = async (clinicId: number, templateId: number) => {
 };
 
 export const getAssignedPatients = async (clinicId: number, doctorId: number) => {
-    // Return only patients who have an appointment booked with this doctor (by reception / booking link)
-    return await prisma.patient.findMany({
+    // 1. Get all unique patientIDs that have appointments with this doctor
+    const appointments = await prisma.appointment.findMany({
         where: {
             clinicId,
-            appointment: {
-                some: {
-                    doctorId
-                }
-            }
+            doctorId
+        },
+        select: { patientId: true },
+        distinct: ['patientId'],
+        orderBy: { updatedAt: 'desc' }
+    });
+
+    const patientIds = appointments.map(a => a.patientId);
+
+    if (patientIds.length === 0) return [];
+
+    // 2. Fetch patient details
+    return await prisma.patient.findMany({
+        where: {
+            id: { in: patientIds },
+            clinicId
         },
         include: {
             medicalrecord: {
@@ -358,15 +387,25 @@ export const getDoctorOrders = async (clinicId: number, doctorId: number) => {
         orderBy: { createdAt: 'desc' }
     });
 
-    return orders.map(o => ({
-        id: o.id,
-        // recordId: o.id, 
-        date: o.createdAt,
-        patientName: o.patient?.name || 'Unknown',
-        type: o.type,
-        details: o.testName,
-        status: o.testStatus || 'Pending'
-    }));
+    return orders.map(o => {
+        let parsedResult = {};
+        try {
+            parsedResult = o.result ? JSON.parse(o.result) : {};
+        } catch (e) {
+            console.error("Failed to parse order result:", e);
+        }
+
+        return {
+            id: o.id,
+            date: o.createdAt,
+            patientName: o.patient?.name || 'Unknown',
+            type: o.type,
+            details: o.testName,
+            status: o.testStatus || 'Pending',
+            priority: o.paymentStatus, // Using paymentStatus which often reflects priority in this DB or use a specific field if available
+            result: parsedResult
+        };
+    });
 };
 
 export const createOrder = async (clinicId: number, doctorId: number, data: any) => {

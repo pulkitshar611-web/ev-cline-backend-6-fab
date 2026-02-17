@@ -8,25 +8,25 @@ datasource db {
 }
 
 model appointment {
-  id          Int      @id @default(autoincrement())
-  clinicId    Int
-  patientId   Int
-  doctorId    Int
-  date        DateTime
-  time        String
-  status      String   @default("Pending")
-  queueStatus String   @default("Pending") // Pending, Checked-In, In-Consultation, Completed, Pending-Payment, Paid
-  tokenNumber Int?
-  isPaid      Boolean  @default(false)
+  id            Int      @id @default(autoincrement())
+  clinicId      Int
+  patientId     Int
+  doctorId      Int
+  date          DateTime
+  time          String
+  status        String   @default("Pending")
+  queueStatus   String   @default("Pending")
+  tokenNumber   Int?
+  isPaid        Boolean  @default(false)
   billingAmount Decimal? @db.Decimal(10, 2)
-  source      String   @default("Walk-in")
-  notes       String?  @db.Text
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
-  referenceId String?  @unique(map: "Appointment_referenceId_key")
-  service     String?
-  clinic      clinic   @relation(fields: [clinicId], references: [id], map: "Appointment_clinicId_fkey")
-  patient     patient  @relation(fields: [patientId], references: [id], map: "Appointment_patientId_fkey")
+  source        String   @default("Walk-in")
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  referenceId   String?  @unique(map: "Appointment_referenceId_key")
+  service       String?
+  clinic        clinic   @relation(fields: [clinicId], references: [id], map: "Appointment_clinicId_fkey")
+  patient       patient  @relation(fields: [patientId], references: [id], map: "Appointment_patientId_fkey")
 
   @@index([clinicId], map: "Appointment_clinicId_fkey")
   @@index([patientId], map: "Appointment_patientId_fkey")
@@ -82,9 +82,9 @@ model clinic {
   medicalrecord        medicalrecord[]
   notification         notification[]
   patient              patient[]
+  patient_document     patient_document[]
   service_order        service_order[]
   staff_document       staff_document[]
-  patient_document     patient_document[]
   subscriptionInvoices subscription_invoice[]
 }
 
@@ -128,11 +128,13 @@ model formtemplate {
   fields        String          @db.LongText
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @default(now()) @updatedAt
+  doctorId      Int?
   formresponse  formresponse[]
   clinic        clinic?         @relation(fields: [clinicId], references: [id], map: "FormTemplate_clinicId_fkey")
   medicalrecord medicalrecord[]
 
   @@index([clinicId], map: "FormTemplate_clinicId_fkey")
+  @@index([doctorId], map: "FormTemplate_doctorId_fkey")
 }
 
 model invoice {
@@ -160,9 +162,9 @@ model medicalrecord {
   doctorId     Int
   templateId   Int?
   visitDate    DateTime      @default(now())
-  type         String        // ASSESSMENT, PRESCRIPTION, NOTE
+  type         String
   data         String        @db.LongText
-  status       String        @default("Active") // For prescriptions: Pending, Ready, Dispensed
+  status       String        @default("Active")
   isClosed     Boolean       @default(false)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @default(now()) @updatedAt
@@ -222,7 +224,7 @@ model notification {
 }
 
 model patient {
-  id                    Int             @id @default(autoincrement())
+  id                    Int                @id @default(autoincrement())
   clinicId              Int
   mrn                   String?
   name                  String
@@ -230,23 +232,23 @@ model patient {
   email                 String?
   phone                 String
   gender                String?
-  address               String?         @db.Text
-  medicalHistory        String?         @db.Text
-  allergies             String?         @db.Text
+  address               String?            @db.Text
+  medicalHistory        String?            @db.Text
+  allergies             String?            @db.Text
   emergencyContactName  String?
   emergencyContactPhone String?
-  status                String          @default("Active")
+  status                String             @default("Active")
   createdYear           Int?
   lastVisit             DateTime?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @default(now()) @updatedAt
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @default(now()) @updatedAt
   appointment           appointment[]
   formresponse          formresponse[]
   invoice               invoice[]
   medicalrecord         medicalrecord[]
-  clinic                clinic          @relation(fields: [clinicId], references: [id], map: "Patient_clinicId_fkey")
-  service_order         service_order[]
+  clinic                clinic             @relation(fields: [clinicId], references: [id], map: "Patient_clinicId_fkey")
   patient_document      patient_document[]
+  service_order         service_order[]
 
   @@unique([clinicId, mrn], map: "Patient_clinicId_mrn_key")
 }
@@ -266,19 +268,19 @@ model inventory {
 }
 
 model service_order {
-  id        Int      @id @default(autoincrement())
-  clinicId  Int
-  patientId Int
-  doctorId  Int
-  type      String
-  testName  String
-  paymentStatus String   @default("Pending") // Pending, Paid
-  testStatus    String   @default("Pending") // Pending, Sample Collected, Result Uploaded, Published
-  result    String?  @db.LongText
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  clinic    clinic   @relation(fields: [clinicId], references: [id])
-  patient   patient  @relation(fields: [patientId], references: [id])
+  id            Int      @id @default(autoincrement())
+  clinicId      Int
+  patientId     Int
+  doctorId      Int
+  type          String
+  testName      String
+  paymentStatus String   @default("Pending")
+  testStatus    String   @default("Pending")
+  result        String?  @db.LongText
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  clinic        clinic   @relation(fields: [clinicId], references: [id])
+  patient       patient  @relation(fields: [patientId], references: [id])
 
   @@index([clinicId])
   @@index([patientId])
@@ -326,6 +328,22 @@ model system_settings {
   updatedAt   DateTime @default(now()) @updatedAt
 }
 
+model patient_document {
+  id        Int      @id @default(autoincrement())
+  clinicId  Int
+  patientId Int
+  type      String   @default("OTHER")
+  name      String
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  clinic    clinic   @relation(fields: [clinicId], references: [id])
+  patient   patient  @relation(fields: [patientId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+}
+
 enum clinicstaff_role {
   SUPER_ADMIN
   ADMIN
@@ -350,20 +368,4 @@ enum user_role {
   ACCOUNTANT
   PATIENT
   DOCUMENT_CONTROLLER
-}
-
-model patient_document {
-  id        Int      @id @default(autoincrement())
-  clinicId  Int
-  patientId Int
-  type      String   @default("OTHER") // PASSPORT, ID_CARD, REPORT, OTHER
-  name      String
-  url       String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  clinic    clinic   @relation(fields: [clinicId], references: [id])
-  patient   patient  @relation(fields: [patientId], references: [id])
-
-  @@index([clinicId])
-  @@index([patientId])
 }

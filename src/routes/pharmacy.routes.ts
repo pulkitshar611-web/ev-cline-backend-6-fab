@@ -20,5 +20,6 @@ router.post('/pos', pharmacyController.directSale);
 router.patch('/pos/:id', pharmacyController.updatePosSale);
 router.delete('/pos/:id', pharmacyController.deletePosSale);
 router.get('/notifications', pharmacyController.getNotifications);
+router.get('/reports', pharmacyController.getReports);
 
 export default router;

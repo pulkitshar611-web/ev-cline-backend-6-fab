@@ -11,6 +11,7 @@ router.get('/', departmentController.getDepartments);
 router.post('/', restrictTo('ADMIN'), departmentController.createDepartment);
 router.delete('/:id', restrictTo('ADMIN'), departmentController.deleteDepartment);
 router.get('/notifications', departmentController.getNotifications);
+router.get('/unread-count', departmentController.getUnreadCount);
 router.patch('/notifications/:id', departmentController.updateNotificationStatus);
 
 export default router;

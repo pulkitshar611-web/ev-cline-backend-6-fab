@@ -5,19 +5,27 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 
 const getClientInfo = (req: any) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-    const device = req.headers['user-agent'] || 'unknown';
+    const rawDevice = req.headers['user-agent'] || 'unknown';
+    const device = rawDevice.length > 150 ? rawDevice.substring(0, 150) + '...' : rawDevice;
     return { ip: Array.isArray(ip) ? ip[0] : ip, device };
 };
 
 export const login = asyncHandler(async (req: AuthRequest, res: Response) => {
     const { ip, device } = getClientInfo(req);
-    const result = await authService.login(req.body, ip, device);
-    console.log('Login backend result:', JSON.stringify(result, null, 2));
-    res.status(200).json({
-        success: true,
-        message: 'Verification code sent to email',
-        data: result
-    });
+    console.log(`[LOGIN CONTROLLER] Body:`, JSON.stringify(req.body));
+
+    try {
+        const result = await authService.login(req.body, ip, device);
+        console.log('Login backend result successful');
+        res.status(200).json({
+            success: true,
+            message: 'Verification code sent to email',
+            data: result
+        });
+    } catch (error: any) {
+        console.error(`[LOGIN CONTROLLER ERROR]`, error);
+        throw error; // Let the global handler take it, but now it's logged
+    }
 });
 
 export const verifyOTP = asyncHandler(async (req: AuthRequest, res: Response) => {

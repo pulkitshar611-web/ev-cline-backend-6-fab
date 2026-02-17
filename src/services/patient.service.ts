@@ -122,15 +122,48 @@ export const getMyDocuments = async (email: string) => {
     });
 };
 
-export const uploadPatientDocument = async (clinicId: number, patientId: number, data: any) => {
+export const uploadPatientDocument = async (clinicId: number, data: any) => {
+    const { patientId, type, name, url } = data;
+
+    if (!patientId) throw new AppError('Patient ID is required', 400);
+    if (!name) throw new AppError('Document name is required', 400);
+    if (!url) throw new AppError('Document URL is required', 400);
+
     return await prisma.patient_document.create({
         data: {
             clinicId,
             patientId: Number(patientId),
-            type: data.type || 'OTHER',
-            name: data.name,
-            url: data.url
+            type: type || 'OTHER',
+            name,
+            url
         }
+    });
+};
+
+export const getPatientDocuments = async (clinicId: number, patientId: number) => {
+    return await prisma.patient_document.findMany({
+        where: {
+            clinicId,
+            patientId
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+};
+
+export const deletePatientDocument = async (clinicId: number, documentId: number) => {
+    const document = await prisma.patient_document.findFirst({
+        where: {
+            id: documentId,
+            clinicId
+        }
+    });
+
+    if (!document) {
+        throw new AppError('Document not found or access denied', 404);
+    }
+
+    await prisma.patient_document.delete({
+        where: { id: documentId }
     });
 };
 

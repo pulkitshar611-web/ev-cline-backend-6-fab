@@ -8,8 +8,7 @@ export const getLabOrders = async (clinicId: number, type: 'LAB' | 'RADIOLOGY', 
 
     const where: any = {
         clinicId,
-        type: { in: typeList },
-        paymentStatus: 'Paid' // Only visible after payment
+        type: { in: typeList }
     };
 
     if (statusFilter) {

@@ -52,3 +52,19 @@ export const getNotifications = async (clinicId: number) => {
         orderBy: { createdAt: 'desc' }
     });
 };
+
+export const getUnreadNotificationsCount = async (clinicId: number, department?: string) => {
+    const where: any = {
+        clinicId,
+        status: 'unread'
+    };
+
+    if (department) {
+        where.department = {
+            contains: department,
+            // mode: 'insensitive' // Optional, based on DB support
+        };
+    }
+
+    return await prisma.notification.count({ where });
+};

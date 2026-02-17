@@ -3,6 +3,7 @@ import * as superController from '../controllers/super.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.js';
 import { validate } from '../middlewares/validate.js';
 import { createClinicSchema, createStaffSchema } from '../validations/super.validation.js';
+import { uploadLogo } from '../utils/upload.js';
 
 const router = Router();
 
@@ -14,8 +15,9 @@ router.get('/alerts', superController.getSystemAlerts);
 
 // ==================== CLINICS ====================
 router.get('/clinics', superController.getClinics);
-router.post('/clinics', validate(createClinicSchema), superController.createClinic);
-router.patch('/clinics/:id', superController.updateClinic);
+router.post('/clinics', uploadLogo.single('logo'), validate(createClinicSchema), superController.createClinic);
+router.patch('/clinics/:id', uploadLogo.single('logo'), superController.updateClinic);
+
 router.patch('/clinics/:id/status', superController.toggleClinicStatus);
 router.delete('/clinics/:id', superController.deleteClinic);
 router.patch('/clinics/:id/modules', superController.updateModules);

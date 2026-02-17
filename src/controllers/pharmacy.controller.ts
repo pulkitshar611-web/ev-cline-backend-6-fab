@@ -67,8 +67,8 @@ export const getOrders = async (req: any, res: Response, next: NextFunction) => 
 export const processOrder = async (req: any, res: Response, next: NextFunction) => {
     try {
         const clinicId = req.clinicId;
-        const { orderId, items, paid, amount } = req.body;
-        const result = await pharmacyService.processPharmacyOrder(clinicId, orderId, items, paid, amount);
+        const { orderId, items, paid, amount, source } = req.body;
+        const result = await pharmacyService.processPharmacyOrder(clinicId, orderId, items, paid, amount, source);
         res.json({ status: 'success', data: result });
     } catch (error) {
         next(error);
@@ -121,6 +121,17 @@ export const getNotifications = async (req: any, res: Response, next: NextFuncti
         const clinicId = req.clinicId;
         const count = await pharmacyService.getPharmacyNotificationsCount(clinicId);
         res.json({ status: 'success', data: { count } });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getReports = async (req: any, res: Response, next: NextFunction) => {
+    try {
+        const clinicId = req.clinicId;
+        const date = req.query.date ? String(req.query.date) : new Date().toISOString().split('T')[0];
+        const reports = await pharmacyService.getDailySalesReports(clinicId, date);
+        res.json({ status: 'success', data: reports });
     } catch (error) {
         next(error);
     }

@@ -27,3 +27,12 @@ export const getNotifications = asyncHandler(async (req: AuthRequest, res: Respo
     const notifications = await departmentService.getNotifications(Number(req.clinicId));
     res.status(200).json({ status: 'success', data: notifications });
 });
+
+export const getUnreadCount = asyncHandler(async (req: AuthRequest, res: Response) => {
+    if (!req.clinicId) {
+        return res.status(200).json({ status: 'success', data: { count: 0 } });
+    }
+    const department = req.query.department ? String(req.query.department) : undefined;
+    const count = await departmentService.getUnreadNotificationsCount(Number(req.clinicId), department);
+    res.status(200).json({ status: 'success', data: { count } });
+});

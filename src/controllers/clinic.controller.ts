@@ -8,6 +8,11 @@ export const getClinicStats = asyncHandler(async (req: AuthRequest, res: Respons
     res.status(200).json({ success: true, data: stats });
 });
 
+export const getClinicData = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const data = await clinicService.getClinicContext(req.clinicId!);
+    res.status(200).json({ success: true, data });
+});
+
 export const getClinicStaff = asyncHandler(async (req: AuthRequest, res: Response) => {
     const staff = await clinicService.getClinicStaff(req.clinicId!);
     res.status(200).json({ success: true, data: staff });

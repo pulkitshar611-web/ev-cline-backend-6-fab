@@ -299,7 +299,8 @@ async function main() {
             data: {
                 clinicId: firstClinic.id,
                 name: 'Panadol (500mg)',
-                sku: 'RX-PAN-001',
+                sku: 'PH-PAN-001',
+
                 quantity: 100,
                 unitPrice: 15.00,
                 expiryDate: new Date('2026-12-31')
@@ -358,9 +359,9 @@ async function main() {
 }
 main()
     .catch((e) => {
-    console.error(e);
-    process.exit(1);
-})
+        console.error(e);
+        process.exit(1);
+    })
     .finally(async () => {
-    await prisma.$disconnect();
-});
+        await prisma.$disconnect();
+    });
