@@ -37,7 +37,10 @@ const PORT = Number(process.env.PORT) || 5000;
 
 /* -------------------- MIDDLEWARES -------------------- */
 
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false, // Disable CSP for development to avoid blocking local assets
+}));
 app.use(compression());
 
 app.use(

@@ -337,7 +337,7 @@ export const getSuperAdminReports = async (startDate?: string, endDate?: string)
 
 export const updateClinic = async (id: number, data: any) => {
     // Extract password and other non-clinic fields
-    const { password, subscriptionDuration, manualDays, ...clinicData } = data;
+    const { password, subscriptionDuration, manualDays, subscriptionAmount, gstPercent, numberOfUsers, ...clinicData } = data;
 
     // Sanitize logo to ensure it's a string path or removed if invalid
     if (clinicData.logo && typeof clinicData.logo !== 'string') {

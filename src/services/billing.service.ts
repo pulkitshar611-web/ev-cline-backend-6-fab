@@ -101,11 +101,16 @@ export const updateInvoiceStatus = async (clinicId: number, id: string, status: 
 export const createInvoice = async (clinicId: number, data: any) => {
     const { patientId, doctorId, service, amount, status } = data;
 
+    const pId = Number(patientId);
+    if (!pId || isNaN(pId)) {
+        throw new Error('Invalid Patient selected. Please select a valid patient.');
+    }
+
     return await prisma.invoice.create({
         data: {
             id: `INV-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
             clinicId,
-            patientId: Number(patientId),
+            patientId: pId,
             doctorId: doctorId ? Number(doctorId) : undefined,
             service,
             amount: Number(amount),
