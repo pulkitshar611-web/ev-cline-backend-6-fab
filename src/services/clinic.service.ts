@@ -64,7 +64,38 @@ export const getClinicContext = async (clinicId: number) => {
         subdomain: clinic.subdomain,
         modules,
         brandingColor: clinic.brandingColor,
-        status: clinic.status
+        status: clinic.status,
+        documentTypes: clinic.documentTypes ? JSON.parse(clinic.documentTypes) : null
+    };
+};
+
+export const updateClinic = async (clinicId: number, data: any) => {
+    const { name, location, contact, email, documentTypes, brandingColor } = data;
+
+    const updated = await prisma.clinic.update({
+        where: { id: clinicId },
+        data: {
+            name: name || undefined,
+            location: location || undefined,
+            contact: contact || undefined,
+            email: email || undefined,
+            brandingColor: brandingColor || undefined,
+            documentTypes: documentTypes ? JSON.stringify(documentTypes) : undefined
+        }
+    });
+
+    await prisma.auditlog.create({
+        data: {
+            action: 'Clinic Details Updated',
+            performedBy: 'ADMIN',
+            clinicId,
+            details: JSON.stringify({ updates: Object.keys(data) })
+        }
+    });
+
+    return {
+        ...updated,
+        documentTypes: updated.documentTypes ? JSON.parse(updated.documentTypes) : null
     };
 };
 

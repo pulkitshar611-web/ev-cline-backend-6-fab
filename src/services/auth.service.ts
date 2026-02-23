@@ -77,11 +77,23 @@ export const login = async (data: any, ip: string, device: string) => {
     let staffRecords: any[] = [];
     try {
         staffRecords = await prisma.clinicstaff.findMany({
-            where: { userId: user.id }
+            where: { userId: user.id },
+            include: { clinic: { select: { id: true, status: true } } }
         });
     } catch (e) {
         console.error('Error fetching staff records:', e);
         // Fallback or ignore
+    }
+
+    // Block login if user is not SUPER_ADMIN and ALL their clinics are inactive
+    const isSuperAdminEarly = user.role === 'SUPER_ADMIN';
+    if (!isSuperAdminEarly && staffRecords.length > 0) {
+        const hasActiveClinic = staffRecords.some(
+            (r: any) => (r.clinic?.status || '').toLowerCase() === 'active'
+        );
+        if (!hasActiveClinic) {
+            throw new AppError('Your clinic account is currently inactive. Please contact your administrator.', 403);
+        }
     }
 
     let allRoles = [user.role];
@@ -327,6 +339,17 @@ export const selectClinic = async (userId: number, clinicId: number, role: strin
     // Security check
     if (!isSuperAdmin && !staffRecord) {
         throw new AppError('You do not have the requested role in this clinic', 403);
+    }
+
+    // Block selection of inactive clinic (SUPER_ADMIN can always proceed)
+    if (!isSuperAdmin) {
+        const clinic = await prisma.clinic.findUnique({
+            where: { id: clinicId },
+            select: { status: true, name: true }
+        });
+        if (clinic && (clinic.status || '').toLowerCase() !== 'active') {
+            throw new AppError(`This clinic is currently inactive. Please contact your administrator.`, 403);
+        }
     }
 
     const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : role;

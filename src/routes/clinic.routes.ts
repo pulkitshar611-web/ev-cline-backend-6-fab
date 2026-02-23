@@ -10,6 +10,7 @@ router.use(protect, ensureClinicContext);
 // Routes accessible by ADMIN and RECEPTIONIST
 // Routes accessible by all clinic roles (Read-only)
 router.get('/details', clinicController.getClinicData);
+router.patch('/details', restrictToClinicRole('ADMIN'), clinicController.updateClinicData);
 router.get('/staff', clinicController.getClinicStaff);
 router.get('/booking-config', clinicController.getBookingConfig);
 router.get('/booking-config/doctor/:doctorId', clinicController.getDoctorAvailability);

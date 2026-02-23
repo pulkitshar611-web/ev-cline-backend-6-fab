@@ -13,6 +13,11 @@ export const getClinicData = asyncHandler(async (req: AuthRequest, res: Response
     res.status(200).json({ success: true, data });
 });
 
+export const updateClinicData = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const data = await clinicService.updateClinic(req.clinicId!, req.body);
+    res.status(200).json({ success: true, message: 'Clinic details updated successfully', data });
+});
+
 export const getClinicStaff = asyncHandler(async (req: AuthRequest, res: Response) => {
     const staff = await clinicService.getClinicStaff(req.clinicId!);
     res.status(200).json({ success: true, data: staff });

@@ -60,6 +60,7 @@ model clinic {
   brandingColor        String?                @default("#2D3BAE")
   status               String                 @default("active")
   modules              String?                @db.LongText
+  documentTypes        String?                @db.LongText
   createdDate          DateTime               @default(now())
   updatedAt            DateTime               @default(now()) @updatedAt
   bookingConfig        String?                @db.LongText

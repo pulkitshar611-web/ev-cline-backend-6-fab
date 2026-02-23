@@ -77,7 +77,7 @@ export const getPharmacyOrders = async (clinicId: number) => {
         where: {
             clinicId,
             type: 'PRESCRIPTION',
-            status: { not: 'Dispensed' }
+            // status: { not: 'Dispensed' } // Removed to include Completed/Dispensed orders
         },
         include: {
             patient: { select: { name: true } }
@@ -122,8 +122,9 @@ export const getPharmacyOrders = async (clinicId: number) => {
                     ? prescriptionItems.map((i: any) => i.medicineName || i.name || 'Medicine').join(', ')
                     : 'Prescription',
                 items: prescriptionItems,
-                status: r.status,
+                status: r.status === 'Dispensed' ? 'Completed' : r.status, // Map to Completed for frontend
                 paymentStatus: 'Paid',
+                result: r.data, // Map data to result so frontend can parse invoice/items if present
                 createdAt: r.createdAt,
                 source: 'EMR'
             };
@@ -256,6 +257,7 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
                 }
             }
 
+
             if (serviceDetails.length === 0) {
                 try {
                     const parsed = JSON.parse(description);
@@ -293,10 +295,26 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
                     }
                 });
             } else {
-                // For EMR, we can store metadata in a specific way if needed, 
-                // but usually we just update the record as Dispensed.
-                // We might want to append the invoice info to the record's data if possible,
-                // but let's keep it simple for now.
+                // For EMR, update the medical record data with the invoice result
+                try {
+                    const record = await tx.medicalrecord.findUnique({ where: { id: orderId } });
+                    if (record) {
+                        const parsedData = JSON.parse(record.data);
+                        // Store the outcome metadata in the record data
+                        parsedData.ordersSnapshot = items;
+                        parsedData.amount = totalAmount;
+                        parsedData.invoiceId = invoice.id;
+                        parsedData.paid = paid;
+                        parsedData.isDispensed = true;
+
+                        await tx.medicalrecord.update({
+                            where: { id: orderId },
+                            data: { data: JSON.stringify(parsedData) }
+                        });
+                    }
+                } catch (e) {
+                    console.error("Failed to update medicalrecord data with metadata", e);
+                }
             }
 
             return { invoice };
