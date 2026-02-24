@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import fs from 'fs';
 import path from 'path';
@@ -80,9 +80,16 @@ export const login = async (data: any, ip: string, device: string) => {
             where: { userId: user.id },
             include: { clinic: { select: { id: true, status: true } } }
         });
-    } catch (e) {
+    } catch (e: any) {
         console.error('Error fetching staff records:', e);
-        // Fallback or ignore
+        // If there's an enum error (like empty string in DB), we still want the user to be able to login if they are SUPER_ADMIN
+        // or have other valid records. But usually Prisma findMany will fail the whole query if one record is bad.
+        if (e.message && e.message.includes('not found in enum')) {
+            console.warn('[AUTH SERVICE] Detected invalid enum value in clinicstaff table. Attempting to proceed with empty staff list.');
+            staffRecords = [];
+        } else {
+            throw e; // Rethrow other critical errors
+        }
     }
 
     // Block login if user is not SUPER_ADMIN and ALL their clinics are inactive

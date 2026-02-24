@@ -28,8 +28,10 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 
 import { startTime } from './utils/system.js';
 
+import { prisma } from './lib/prisma.js';
+
 const app = express();
-export const prisma = new PrismaClient();
+
 
 console.log("🔌 Connecting to Database URL:", process.env.DATABASE_URL); // Debug Log
 

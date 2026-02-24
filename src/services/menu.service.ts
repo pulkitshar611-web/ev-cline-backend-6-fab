@@ -1,4 +1,4 @@
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 
 export const getMenuByRole = async (role: string) => {
     const menus: Record<string, any[]> = {

@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 
 export const sendEmail = async (to: string, subject: string, html: string) => {
     try {

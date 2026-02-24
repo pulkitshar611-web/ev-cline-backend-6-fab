@@ -3,7 +3,7 @@ import { AuthRequest } from '../middlewares/auth.js';
 import * as doctorService from '../services/doctor.service.js';
 import * as pharmacyService from '../services/pharmacy.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 
 const resolveDoctorId = async (userId: number, clinicId: number) => {
     const staff = await prisma.clinicstaff.findFirst({

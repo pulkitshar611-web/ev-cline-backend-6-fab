@@ -1,4 +1,4 @@
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 import { AppError } from '../utils/AppError.js';
 
 export const getDocumentRecords = async (clinicId: number, options?: { patientId?: number; archivedOnly?: boolean }) => {

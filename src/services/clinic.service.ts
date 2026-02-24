@@ -1,4 +1,4 @@
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import bcrypt from 'bcryptjs';
 
@@ -122,9 +122,7 @@ export const getClinicStaff = async (clinicId: number) => {
             role: { not: 'SUPER_ADMIN' }
         },
         include: {
-            user: {
-                select: { id: true, name: true, email: true, phone: true, status: true, joined: true }
-            }
+            user: true
         }
     });
 
@@ -140,11 +138,11 @@ export const getClinicStaff = async (clinicId: number) => {
             id: record.id,
             userId: record.userId,
             clinicId: record.clinicId,
-            name: record.user.name,
-            email: record.user.email,
-            phone: record.user.phone,
-            status: record.user.status,
-            joined: record.user.joined ? record.user.joined.toISOString().split('T')[0] : null,
+            name: (record.user as any).name,
+            email: (record.user as any).email,
+            phone: (record.user as any).phone,
+            status: (record.user as any).status,
+            joined: (record.user as any).joined ? (record.user as any).joined.toISOString().split('T')[0] : null,
             role: record.role,
             roles: roles,
             department: record.department,
@@ -154,87 +152,112 @@ export const getClinicStaff = async (clinicId: number) => {
 };
 
 export const addStaff = async (clinicId: number, data: any) => {
-    const { email, password, name, roles, phone, department, specialty } = data;
-    const primaryRole = (roles && roles.length > 0) ? roles[0].toUpperCase() : 'RECEPTIONIST';
+    try {
+        const { email, password, name, roles, phone, department, specialty } = data;
 
-    // Check if user exists
-    let user = await prisma.user.findUnique({ where: { email } });
+        // Map common variations to valid Enum values
+        let primaryRoleRaw = (roles && roles.length > 0) ? roles[0].toUpperCase() : 'RECEPTIONIST';
+        if (primaryRoleRaw === 'LABORATORY') primaryRoleRaw = 'LAB';
+        if (primaryRoleRaw === 'PHARMACIST') primaryRoleRaw = 'PHARMACY';
 
-    if (!user) {
-        if (!password) throw new AppError('Password is required for new users', 400);
-        const hashedPassword = await bcrypt.hash(password, 12);
-        user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                name,
-                phone,
-                status: 'active',
-                role: primaryRole as any
+        const primaryRole = primaryRoleRaw;
+
+        console.log(`[STAFF_SERVICE] Adding staff: ${email} to clinic ${clinicId} with role ${primaryRole}`);
+
+        // Check if user exists
+        let user: any = await prisma.user.findUnique({ where: { email } });
+
+        if (!user) {
+            if (!password) throw new AppError('Password is required for new users', 400);
+            const hashedPassword = await bcrypt.hash(password, 12);
+            user = await prisma.user.create({
+                data: {
+                    email,
+                    password: hashedPassword,
+                    name,
+                    phone,
+                    status: 'active',
+                    role: primaryRole as any
+                }
+            });
+            console.log(`[STAFF_SERVICE] Created new user with ID: ${user.id}`);
+        } else {
+            // Update user's phone and primary role
+            user = await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    phone: phone || undefined,
+                    role: primaryRole as any
+                }
+            });
+            console.log(`[STAFF_SERVICE] Linked existing user id: ${user.id}`);
+        }
+
+        // Check if staff already exists in this clinic
+        const existing = await prisma.clinicstaff.findFirst({
+            where: {
+                userId: user.id,
+                clinicId
             }
         });
-    } else {
-        // Update user's phone and primary role
-        await prisma.user.update({
-            where: { id: user.id },
+
+        if (existing) throw new AppError('User is already a staff member in this clinic', 400);
+
+        const newStaff: any = await prisma.clinicstaff.create({
             data: {
-                phone: phone || undefined,
-                role: primaryRole as any
+                userId: user.id,
+                clinicId,
+                role: primaryRole as any,
+                roles: JSON.stringify(roles || [primaryRole]),
+                department,
+                specialty
+            },
+            include: {
+                user: true
             }
         });
+
+        await prisma.auditlog.create({
+            data: {
+                action: 'Staff Added',
+                performedBy: 'ADMIN',
+                userId: user.id,
+                clinicId,
+                details: JSON.stringify({ name: user.name, roles, department })
+            }
+        });
+
+        return {
+            id: newStaff.id,
+            userId: newStaff.userId,
+            clinicId: newStaff.clinicId,
+            name: newStaff.user?.name || user.name,
+            email: newStaff.user?.email || user.email,
+            role: newStaff.role,
+            roles: roles || [newStaff.role],
+            department: newStaff.department,
+            specialty: newStaff.specialty,
+            status: newStaff.user?.status || 'active',
+            joined: newStaff.user?.joined ? newStaff.user.joined.toISOString().split('T')[0] : null,
+            createdAt: newStaff.createdAt
+        };
+    } catch (error: any) {
+        console.error(`[STAFF_SERVICE_ERROR] Failed to add staff:`, error);
+        if (error instanceof AppError) throw error;
+
+        if (error.code === 'P2002') {
+            throw new AppError('A staff member with this information already exists', 400);
+        }
+
+        // Handle potential enum or database errors specifically to avoid 500
+        if (error.message && (error.message.includes('not found in enum') || error.message.includes('Unknown argument'))) {
+            throw new AppError(`Invalid role or data field selected: ${error.message}`, 400);
+        }
+
+        throw new AppError(`Staff creation failed: ${error.message}`, 500);
     }
-
-    // Check if staff already exists in this clinic
-    const existing = await prisma.clinicstaff.findFirst({
-        where: {
-            userId: user.id,
-            clinicId
-        }
-    });
-
-    if (existing) throw new AppError('User is already a staff member in this clinic', 400);
-
-    const newStaff = await prisma.clinicstaff.create({
-        data: {
-            userId: user.id,
-            clinicId,
-            role: primaryRole as any,
-            roles: JSON.stringify(roles || [primaryRole]),
-            department,
-            specialty
-        },
-        include: {
-            user: {
-                select: { id: true, name: true, email: true, status: true, joined: true }
-            }
-        }
-    });
-
-    await prisma.auditlog.create({
-        data: {
-            action: 'Staff Added',
-            performedBy: 'ADMIN',
-            userId: user.id,
-            clinicId,
-            details: JSON.stringify({ name: user.name, roles, department })
-        }
-    });
-
-    return {
-        id: newStaff.id,
-        userId: newStaff.userId,
-        clinicId: newStaff.clinicId,
-        name: newStaff.user.name,
-        email: newStaff.user.email,
-        role: newStaff.role,
-        roles: roles || [newStaff.role],
-        department: newStaff.department,
-        specialty: newStaff.specialty,
-        status: newStaff.user.status,
-        joined: newStaff.user.joined ? newStaff.user.joined.toISOString().split('T')[0] : null,
-        createdAt: newStaff.createdAt
-    };
 };
+
 
 export const updateStaff = async (clinicId: number, staffId: number, data: any) => {
     const { name, email, phone, roles, department, specialty, status } = data;
@@ -272,9 +295,7 @@ export const updateStaff = async (clinicId: number, staffId: number, data: any) 
             specialty: specialty || undefined
         },
         include: {
-            user: {
-                select: { id: true, name: true, email: true, phone: true, status: true, joined: true }
-            }
+            user: true
         }
     });
 
@@ -299,15 +320,15 @@ export const updateStaff = async (clinicId: number, staffId: number, data: any) 
         id: updatedStaff.id,
         userId: updatedStaff.userId,
         clinicId: updatedStaff.clinicId,
-        name: (updatedStaff as any).user.name,
-        email: (updatedStaff as any).user.email,
-        phone: (updatedStaff as any).user.phone,
+        name: (updatedStaff.user as any).name,
+        email: (updatedStaff.user as any).email,
+        phone: (updatedStaff.user as any).phone,
         role: updatedStaff.role,
         roles: finalRoles,
         department: updatedStaff.department,
         specialty: updatedStaff.specialty,
-        status: (updatedStaff as any).user.status,
-        joined: (updatedStaff as any).user.joined ? (updatedStaff as any).user.joined.toISOString().split('T')[0] : null,
+        status: (updatedStaff.user as any).status,
+        joined: (updatedStaff.user as any).joined ? (updatedStaff.user as any).joined.toISOString().split('T')[0] : null,
         createdAt: updatedStaff.createdAt
     };
 };

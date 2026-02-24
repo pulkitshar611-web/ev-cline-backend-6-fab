@@ -1,4 +1,4 @@
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 
 export const getDashboardStats = async (role: string, clinicId?: number, userId?: number) => {
     const today = new Date();

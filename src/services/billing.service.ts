@@ -1,4 +1,37 @@
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
+
+/** Syncs all pending service orders and appointments to 'Paid' for a given patient */
+const syncServiceOrdersPayment = async (tx: any, clinicId: number, patientId: number) => {
+    // 1. Update all Pending Lab/Radiology orders for this patient
+    await tx.service_order.updateMany({
+        where: {
+            clinicId,
+            patientId,
+            paymentStatus: 'Pending'
+        },
+        data: { paymentStatus: 'Paid' }
+    });
+
+    // 2. Update most recent appointment if it's waiting for payment
+    const appointment = await tx.appointment.findFirst({
+        where: {
+            clinicId,
+            patientId,
+            queueStatus: 'Pending-Payment'
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+
+    if (appointment) {
+        await tx.appointment.update({
+            where: { id: appointment.id },
+            data: {
+                isPaid: true,
+                queueStatus: 'Paid'
+            }
+        });
+    }
+};
 
 export const getAccountingDashboardStats = async (clinicId: number) => {
     const todayStart = new Date();
@@ -60,38 +93,7 @@ export const updateInvoiceStatus = async (clinicId: number, id: string, status: 
         });
 
         if (status === 'Paid') {
-            // Sync with appointment queue
-            const appointment = await tx.appointment.findFirst({
-                where: {
-                    clinicId,
-                    patientId: invoice.patientId,
-                    queueStatus: 'Pending-Payment'
-                },
-                orderBy: { createdAt: 'desc' }
-            });
-
-            if (appointment) {
-                await tx.appointment.update({
-                    where: { id: appointment.id },
-                    data: {
-                        isPaid: true,
-                        queueStatus: 'Paid'
-                    }
-                });
-
-                // Release Lab/Radiology orders
-                await tx.service_order.updateMany({
-                    where: {
-                        clinicId,
-                        patientId: invoice.patientId,
-                        doctorId: appointment.doctorId,
-                        paymentStatus: 'Pending'
-                    },
-                    data: {
-                        paymentStatus: 'Paid'
-                    }
-                });
-            }
+            await syncServiceOrdersPayment(tx, clinicId, invoice.patientId);
         }
 
         return invoice;
@@ -106,15 +108,23 @@ export const createInvoice = async (clinicId: number, data: any) => {
         throw new Error('Invalid Patient selected. Please select a valid patient.');
     }
 
-    return await prisma.invoice.create({
-        data: {
-            id: `INV-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-            clinicId,
-            patientId: pId,
-            doctorId: doctorId ? Number(doctorId) : undefined,
-            service,
-            amount: Number(amount),
-            status: status || 'Pending'
+    return await prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.create({
+            data: {
+                id: `INV-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
+                clinicId,
+                patientId: pId,
+                doctorId: doctorId ? Number(doctorId) : undefined,
+                service,
+                amount: Number(amount),
+                status: status || 'Pending'
+            }
+        });
+
+        if (invoice.status === 'Paid') {
+            await syncServiceOrdersPayment(tx, clinicId, pId);
         }
+
+        return invoice;
     });
 };

@@ -1,4 +1,4 @@
-import { prisma } from '../server.js';
+import { prisma } from '../lib/prisma.js';
 import { AppError } from '../utils/AppError.js';
 
 export const getLabOrders = async (clinicId: number, type: 'LAB' | 'RADIOLOGY', statusFilter?: string) => {
@@ -25,7 +25,7 @@ export const getLabOrders = async (clinicId: number, type: 'LAB' | 'RADIOLOGY', 
 };
 
 export const updateLabStatus = async (clinicId: number, orderId: number, status: string, resultData?: string) => {
-    // Status Flow: Pending -> Sample Collected -> Result Uploaded -> Published
+    // Status Flow: Pending -> Sample Collected -> Completed
     const data: any = { testStatus: status };
     if (resultData) {
         data.result = resultData;
@@ -45,26 +45,48 @@ export const rejectLabOrder = async (clinicId: number, orderId: number) => {
 };
 
 export const collectSample = async (clinicId: number, orderId: number) => {
+    const order = await prisma.service_order.findUnique({
+        where: { id: orderId, clinicId }
+    });
+
+    if (!order) throw new AppError('Order not found', 404);
+    if (order.paymentStatus !== 'Paid') throw new AppError('Payment required before collection', 400);
+
     return await updateLabStatus(clinicId, orderId, 'Sample Collected');
 };
 
 export const uploadReport = async (clinicId: number, orderId: number, reportContent: string) => {
-    return await updateLabStatus(clinicId, orderId, 'Result Uploaded', reportContent);
+    const order = await prisma.service_order.findUnique({
+        where: { id: orderId, clinicId }
+    });
+
+    if (!order) throw new AppError('Order not found', 404);
+    if (order.testStatus !== 'Sample Collected') throw new AppError('Sample must be collected before uploading result', 400);
+
+    return await updateLabStatus(clinicId, orderId, 'Completed', reportContent);
 };
 
 export const publishReport = async (clinicId: number, orderId: number) => {
-    return await updateLabStatus(clinicId, orderId, 'Published');
+    return await updateLabStatus(clinicId, orderId, 'Completed');
 };
 
 export const completeLabOrder = async (clinicId: number, orderId: number, data: { result?: string, price?: number, paid?: boolean }) => {
-    // Note: service_order schema doesn't have price/paid fields yet, so we only update status and result
-    const updateData: any = { testStatus: 'Published' };
+    const order = await prisma.service_order.findUnique({
+        where: { id: orderId, clinicId }
+    });
+
+    if (!order) throw new AppError('Order not found', 404);
+
+    // We maintain backward compatibility but enforce the new status name 'Completed'
+    const updateData: any = { testStatus: 'Completed' };
     if (data.result) {
         updateData.result = data.result;
     }
 
+    // Payment/Price updates are now ignored in the technical flow to preserve Billing integrity
     return await prisma.service_order.update({
         where: { id: orderId, clinicId },
         data: updateData
     });
 };
+
