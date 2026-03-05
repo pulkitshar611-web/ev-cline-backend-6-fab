@@ -12,17 +12,16 @@ interface CreateAppointmentData {
     source?: string;
 }
 
-export const getMyAppointments = async (userId: number, email: string) => {
-    // Patients are linked to users via email or ID. 
-    // We first find the patient records associated with this user across all clinics.
+export const getMyAppointments = async (userId: number, email: string, clinicId?: number) => {
+    const whereClause: any = {
+        OR: [
+            { email: email },
+        ]
+    };
+    if (clinicId) whereClause.clinicId = clinicId;
+
     const patientRecords = await prisma.patient.findMany({
-        where: {
-            OR: [
-                { email: email },
-                // If we had a direct userId link in patient model, we'd use it. 
-                // Currently relying on email which is unique per user but per-clinic in patient table.
-            ]
-        },
+        where: whereClause,
         select: { id: true, clinicId: true }
     });
 
@@ -32,14 +31,13 @@ export const getMyAppointments = async (userId: number, email: string) => {
         return [];
     }
 
+    const appointmentWhere: any = { patientId: { in: patientIds } };
+    if (clinicId) appointmentWhere.clinicId = clinicId;
+
     const appointments = await prisma.appointment.findMany({
-        where: {
-            patientId: { in: patientIds }
-        },
+        where: appointmentWhere,
         include: {
             clinic: { select: { name: true } },
-            // We can't include doctor name directly as it's linked via ID to clinicstaff/user
-            // But we can fetch it if needed or rely on ID.
         },
         orderBy: {
             date: 'desc'
@@ -49,31 +47,38 @@ export const getMyAppointments = async (userId: number, email: string) => {
     return appointments;
 };
 
-export const getMyMedicalRecords = async (userId: number, email: string) => {
+export const getMyMedicalRecords = async (userId: number, email: string, clinicId?: number) => {
+    const whereClause: any = { email: email };
+    if (clinicId) whereClause.clinicId = clinicId;
+
     const patientRecords = await prisma.patient.findMany({
-        where: { email: email },
+        where: whereClause,
         select: { id: true }
     });
 
     const patientIds = patientRecords.map(p => p.id);
 
-    if (patientIds.length === 0) return { assessments: [], serviceOrders: [], prescriptions: [] };
+    if (patientIds.length === 0) return { assessments: [], serviceOrders: [], prescriptions: [], medical_reports: [] };
 
-    const [records, serviceOrders, pRecords] = await Promise.all([
+    const recordsWhere: any = { patientId: { in: patientIds } };
+    if (clinicId) recordsWhere.clinicId = clinicId;
+
+    const [records, serviceOrders, pRecords, dRecords, medicalReports] = await Promise.all([
         prisma.medicalrecord.findMany({
             where: {
-                patientId: { in: patientIds },
+                ...recordsWhere,
                 type: { in: ['ASSESSMENT', 'NOTE'] }
             },
             include: {
-                clinic: { select: { name: true } }
+                clinic: { select: { name: true } },
+                formtemplate: { select: { name: true, fields: true } }
             },
             orderBy: { visitDate: 'desc' }
         }),
         prisma.service_order.findMany({
             where: {
-                patientId: { in: patientIds },
-                testStatus: 'Published' // Only show published reports to patient
+                ...recordsWhere,
+                testStatus: 'Completed'
             },
             include: {
                 clinic: { select: { name: true } }
@@ -82,13 +87,31 @@ export const getMyMedicalRecords = async (userId: number, email: string) => {
         }),
         prisma.medicalrecord.findMany({
             where: {
-                patientId: { in: patientIds },
+                ...recordsWhere,
                 type: 'PRESCRIPTION'
             },
             include: {
                 clinic: { select: { name: true } }
             },
             orderBy: { createdAt: 'desc' }
+        }),
+        prisma.medicalrecord.findMany({
+            where: {
+                ...recordsWhere,
+                type: { notIn: ['ASSESSMENT', 'NOTE', 'PRESCRIPTION'] }
+            },
+            include: {
+                clinic: { select: { name: true } }
+            },
+            orderBy: { createdAt: 'desc' }
+        }),
+        prisma.medical_report.findMany({
+            where: recordsWhere,
+            include: {
+                clinic: { select: { name: true } },
+                template: true
+            },
+            orderBy: { reportDate: 'desc' }
         })
     ]);
 
@@ -97,26 +120,35 @@ export const getMyMedicalRecords = async (userId: number, email: string) => {
             ...record,
             data: record.data ? JSON.parse(record.data) : {}
         })),
-        serviceOrders: serviceOrders.map(order => ({
-            ...order,
-            result: order.result && (order.result.startsWith('{') || order.result.startsWith('[')) ? JSON.parse(order.result) : order.result
-        })),
+        serviceOrders: serviceOrders,
         prescriptions: pRecords.map(p => ({
             ...p,
             data: p.data ? JSON.parse(p.data) : {}
-        }))
+        })),
+        documents: dRecords.map(d => ({
+            ...d,
+            data: d.data ? JSON.parse(d.data) : {}
+        })),
+        medical_reports: medicalReports
     };
+
 };
 
-export const getMyDocuments = async (email: string) => {
+export const getMyDocuments = async (email: string, clinicId?: number) => {
+    const whereClause: any = { email };
+    if (clinicId) whereClause.clinicId = clinicId;
+
     const patients = await prisma.patient.findMany({
-        where: { email },
+        where: whereClause,
         select: { id: true }
     });
     const patientIds = patients.map(p => p.id);
 
+    const docWhere: any = { patientId: { in: patientIds } };
+    if (clinicId) docWhere.clinicId = clinicId;
+
     return await prisma.patient_document.findMany({
-        where: { patientId: { in: patientIds } },
+        where: docWhere,
         include: { clinic: { select: { name: true } } },
         orderBy: { createdAt: 'desc' }
     });
@@ -150,16 +182,33 @@ export const getPatientDocuments = async (clinicId: number, patientId: number) =
     });
 };
 
-export const deletePatientDocument = async (clinicId: number, documentId: number) => {
-    const document = await prisma.patient_document.findFirst({
-        where: {
-            id: documentId,
-            clinicId
-        }
+export const deletePatientDocument = async (documentId: number, clinicId?: number, userEmail?: string, userRole?: string) => {
+    // Basic criteria: document must exist by ID
+    let whereClause: any = { id: documentId };
+
+    // Find the document before ensuring authorization (so we can check patient email ownership)
+    const document = await prisma.patient_document.findUnique({
+        where: { id: documentId },
+        include: { patient: { select: { email: true } } }
     });
 
     if (!document) {
-        throw new AppError('Document not found or access denied', 404);
+        throw new AppError('Document not found', 404);
+    }
+
+    // Role-based authorization
+    if (userRole === 'PATIENT' && userEmail) {
+        // Must belong to the logged-in patient's email
+        if (document.patient.email !== userEmail) {
+            throw new AppError('Access denied', 403);
+        }
+    } else if (clinicId) {
+        // Staff/Admin logic: Must belong to their active clinic
+        if (document.clinicId !== clinicId) {
+            throw new AppError('Access denied. Document belongs to a different clinic.', 403);
+        }
+    } else {
+        throw new AppError('Unauthorized', 401);
     }
 
     await prisma.patient_document.delete({
@@ -167,9 +216,12 @@ export const deletePatientDocument = async (clinicId: number, documentId: number
     });
 };
 
-export const getMyInvoices = async (userId: number, email: string) => {
+export const getMyInvoices = async (userId: number, email: string, clinicId?: number) => {
+    const whereClause: any = { email: email };
+    if (clinicId) whereClause.clinicId = clinicId;
+
     const patientRecords = await prisma.patient.findMany({
-        where: { email: email },
+        where: whereClause,
         select: { id: true }
     });
 
@@ -177,12 +229,14 @@ export const getMyInvoices = async (userId: number, email: string) => {
 
     if (patientIds.length === 0) return [];
 
+    const invoiceWhere: any = { patientId: { in: patientIds } };
+    if (clinicId) invoiceWhere.clinicId = clinicId;
+
     const invoices = await prisma.invoice.findMany({
-        where: {
-            patientId: { in: patientIds }
-        },
+        where: invoiceWhere,
         include: {
-            clinic: { select: { name: true } }
+            clinic: { select: { name: true } },
+            items: true
         },
         orderBy: {
             date: 'desc'
@@ -190,6 +244,100 @@ export const getMyInvoices = async (userId: number, email: string) => {
     });
 
     return invoices;
+};
+
+export const getMyActivity = async (userId: number, email: string, clinicId?: number) => {
+    const whereClause: any = { email };
+    if (clinicId) whereClause.clinicId = clinicId;
+
+    const patients = await prisma.patient.findMany({
+        where: whereClause,
+        select: { id: true }
+    });
+    const patientIds = patients.map(p => p.id);
+
+    if (patientIds.length === 0) return [];
+
+    const activityWhere: any = { patientId: { in: patientIds } };
+    if (clinicId) activityWhere.clinicId = clinicId;
+
+    const [appointments, records, invoices, documents, reports] = await Promise.all([
+        prisma.appointment.findMany({
+            where: activityWhere,
+            include: { clinic: { select: { name: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 5
+        }),
+        prisma.medicalrecord.findMany({
+            where: activityWhere,
+            include: { clinic: { select: { name: true } }, formtemplate: { select: { name: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 5
+        }),
+        prisma.invoice.findMany({
+            where: activityWhere,
+            include: { clinic: { select: { name: true } } },
+            orderBy: { date: 'desc' },
+            take: 5
+        }),
+        prisma.patient_document.findMany({
+            where: activityWhere,
+            include: { clinic: { select: { name: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 5
+        }),
+        prisma.medical_report.findMany({
+            where: activityWhere,
+            include: { clinic: { select: { name: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 5
+        })
+    ]);
+
+    const activities: any[] = [
+        ...appointments.map(a => ({
+            id: a.id,
+            type: 'APPOINTMENT',
+            title: `Appointment ${a.status}`,
+            description: `${a.service} scheduled for ${new Date(a.date).toLocaleDateString()}`,
+            date: a.createdAt,
+            clinic: a.clinic?.name
+        })),
+        ...records.map(r => ({
+            id: r.id,
+            type: 'RECORD',
+            title: r.type === 'PRESCRIPTION' ? 'New Prescription' : (r.formtemplate?.name || 'Medical Record'),
+            description: r.type === 'PRESCRIPTION' ? 'A new prescription has been issued' : 'Consultation notes updated',
+            date: r.createdAt,
+            clinic: r.clinic?.name
+        })),
+        ...invoices.map(i => ({
+            id: i.id,
+            type: 'INVOICE',
+            title: `Invoice #${i.id}`,
+            description: `Amount: ${i.totalAmount} | Status: ${i.status}`,
+            date: i.date,
+            clinic: i.clinic?.name
+        })),
+        ...documents.map(d => ({
+            id: d.id,
+            type: 'DOCUMENT',
+            title: d.name,
+            description: `Document type: ${d.type}`,
+            date: d.createdAt,
+            clinic: d.clinic?.name
+        })),
+        ...reports.map(rep => ({
+            id: rep.id,
+            type: 'REPORT',
+            title: 'Official Medical Report',
+            description: rep.diagnosisSummary ? rep.diagnosisSummary.substring(0, 100) : 'Medical report issued by doctor',
+            date: rep.createdAt,
+            clinic: rep.clinic?.name
+        }))
+    ];
+
+    return activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
 };
 
 export const bookAppointment = async (userId: number, email: string, data: CreateAppointmentData) => {

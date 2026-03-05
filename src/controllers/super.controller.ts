@@ -205,3 +205,15 @@ export const updateInvoiceStatus = asyncHandler(async (req: AuthRequest, res: Re
     const invoice = await superService.updateInvoiceStatus(Number(id), status);
     res.status(200).json({ success: true, message: 'Invoice status updated', data: invoice });
 });
+
+// ==================== PROFILE ====================
+export const getProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const user = await superService.getUserById(req.user!.id);
+    res.status(200).json({ success: true, data: user });
+});
+
+export const updateProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { name, email, currentPassword, newPassword } = req.body;
+    const updated = await superService.updateUserProfile(req.user!.id, { name, email, currentPassword, newPassword });
+    res.status(200).json({ success: true, message: 'Profile updated successfully', data: updated });
+});

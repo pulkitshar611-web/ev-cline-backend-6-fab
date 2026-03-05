@@ -44,9 +44,9 @@ export const getDocumentStats = async (clinicId: number) => {
 export const createDocumentRecord = async (
     clinicId: number,
     userId: number,
-    payload: { patientId: number; documentType: string; fileName?: string; notes?: string }
+    payload: { patientId: number; documentType: string; fileName?: string; notes?: string; fileData?: string }
 ) => {
-    const { patientId, documentType, fileName, notes } = payload;
+    const { patientId, documentType, fileName, notes, fileData } = payload;
 
     const record = await prisma.medicalrecord.create({
         data: {
@@ -58,6 +58,7 @@ export const createDocumentRecord = async (
                 uploadedBy: userId,
                 fileName: fileName || null,
                 notes: notes || null,
+                fileData: fileData || null,
                 source: 'document_controller'
             }),
             isClosed: false
@@ -109,12 +110,14 @@ export const getStaffDocumentRecords = async (clinicId: number) => {
 
 export const createStaffDocumentRecord = async (
     clinicId: number,
-    payload: { staffId: number; documentType: string; fileName?: string; notes?: string }
+    payload: { staffId: number; documentType: string; fileName?: string; notes?: string; fileData?: string }
 ) => {
     const staffId = Number(payload.staffId);
     const documentType = payload.documentType?.trim?.() || payload.documentType;
     const fileName = payload.fileName;
     const notes = payload.notes;
+    const fileData = payload.fileData;
+
     if (!staffId || isNaN(staffId)) throw new AppError('Valid staff ID is required', 400);
     const staff = await prisma.clinicstaff.findFirst({ where: { id: staffId, clinicId } });
     if (!staff) throw new AppError('Staff not found or does not belong to this clinic', 404);
@@ -124,7 +127,11 @@ export const createStaffDocumentRecord = async (
                 clinicId,
                 staffId,
                 type: documentType,
-                data: JSON.stringify({ fileName: fileName || null, notes: notes || null })
+                data: JSON.stringify({
+                    fileName: fileName || null,
+                    notes: notes || null,
+                    fileData: fileData || null
+                })
             },
             include: {
                 staff: { select: { id: true, user: { select: { name: true } } } }

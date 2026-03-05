@@ -194,9 +194,18 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
         }
     }
 
-    console.log(`[Pharmacy Service] Processing ${source} ${orderId} | Paid: ${paid} | Amount: ${manualAmount} | Items: ${items.length}`);
-
     try {
+        const order = source === 'ORDER'
+            ? await prisma.service_order.findFirst({ where: { id: orderId, clinicId } })
+            : await prisma.medicalrecord.findFirst({ where: { id: orderId, clinicId } });
+
+        if (!order) throw new AppError('Order/Prescription not found', 404);
+
+        // Strict Centralized Billing Rule
+        if ((order as any).paymentStatus !== 'Paid' && (source === 'ORDER')) {
+            throw new AppError('This order has not been paid for yet. Please direct the patient to the reception for billing.', 400);
+        }
+
         return await prisma.$transaction(async (tx) => {
             let totalAmount = Number(manualAmount) || 0;
             let serviceDetails: string[] = [];
@@ -266,20 +275,8 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
                 serviceDetails.push(description || `Prescription #${orderId}`);
             }
 
-            // Create Invoice
-            const invoice = await tx.invoice.create({
-                data: {
-                    id: `PH-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-
-                    clinicId,
-                    patientId,
-                    doctorId,
-                    service: `Pharmacy: ${serviceDetails.join(', ')}`,
-                    amount: totalAmount,
-                    status: paid ? 'Paid' : 'Pending',
-                    date: new Date()
-                }
-            });
+            // Invoice creation removed - handled by Reception Centralized Billing
+            // We just update the statuses to mark it as Dispensed
 
             // Update Order/Record with result/metadata
             if (source === 'ORDER') {
@@ -287,25 +284,20 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
                     where: { id: orderId },
                     data: {
                         result: JSON.stringify({
-                            invoiceId: invoice.id,
                             amount: totalAmount,
-                            paid,
-                            items: serviceDetails
+                            items: serviceDetails,
+                            dispensedAt: new Date()
                         })
                     }
                 });
             } else {
-                // For EMR, update the medical record data with the invoice result
                 try {
                     const record = await tx.medicalrecord.findUnique({ where: { id: orderId } });
                     if (record) {
                         const parsedData = JSON.parse(record.data);
-                        // Store the outcome metadata in the record data
-                        parsedData.ordersSnapshot = items;
                         parsedData.amount = totalAmount;
-                        parsedData.invoiceId = invoice.id;
-                        parsedData.paid = paid;
                         parsedData.isDispensed = true;
+                        parsedData.dispensedAt = new Date();
 
                         await tx.medicalrecord.update({
                             where: { id: orderId },
@@ -313,13 +305,11 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
                         });
                     }
                 } catch (e) {
-                    console.error("Failed to update medicalrecord data with metadata", e);
+                    console.error("Failed to update medicalrecord data", e);
                 }
             }
 
-            return { invoice };
-        }, {
-            timeout: 20000
+            return { success: true };
         });
     } catch (error) {
         console.error(`[Pharmacy Service] Error processing ${source} ${orderId}:`, error);
@@ -329,7 +319,7 @@ export const processPharmacyOrder = async (clinicId: number, orderId: number, it
 
 
 export const directSale = async (clinicId: number, data: any) => {
-    const { patientId, items, paid } = data;
+    const { patientId, items } = data;
 
     return await prisma.$transaction(async (tx) => {
         let totalAmount = 0;
@@ -354,20 +344,21 @@ export const directSale = async (clinicId: number, data: any) => {
             serviceDetails.push(`${product.name} x${item.quantity}`);
         }
 
-        // Create Invoice
-        const invoice = await tx.invoice.create({
+        // Create as a Service Order instead of an Invoice
+        const order = await tx.service_order.create({
             data: {
-                id: `PH-POS-${Math.floor(1000 + Math.random() * 9000)}`,
-
                 clinicId,
                 patientId: Number(patientId),
-                service: `Direct Sale: ${serviceDetails.join(', ')}`,
+                doctorId: 0,
+                type: 'PHARMACY',
+                testName: `Walk-in Pharmacy Sale: ${serviceDetails.join(', ')}`,
                 amount: totalAmount,
-                status: paid ? 'Paid' : 'Pending'
+                paymentStatus: 'Pending',
+                testStatus: 'Pending'
             }
         });
 
-        return { invoice };
+        return { order };
     });
 };
 
@@ -375,39 +366,34 @@ export const getPosSales = async (clinicId: number) => {
     return await prisma.invoice.findMany({
         where: {
             clinicId,
-            service: { contains: 'Direct Sale' }
+            items: {
+                some: {
+                    description: { contains: 'Pharmacy' }
+                }
+            }
         },
         include: {
-            patient: { select: { id: true, name: true, email: true } }
+            patient: { select: { id: true, name: true, email: true } },
+            items: true
         },
         orderBy: { createdAt: 'desc' }
     });
 };
 
 export const updatePosSale = async (clinicId: number, invoiceId: string, data: any) => {
-    const existing = await prisma.invoice.findFirst({
-        where: { id: invoiceId, clinicId, service: { contains: 'Direct Sale' } }
-    });
-    if (!existing) throw new AppError('POS sale not found', 404);
     const { status } = data;
     return await prisma.invoice.update({
-        where: { id: invoiceId },
+        where: { id: invoiceId, clinicId },
         data: status != null ? { status: String(status) } : {}
     });
 };
 
 export const deletePosSale = async (clinicId: number, invoiceId: string) => {
-    const existing = await prisma.invoice.findFirst({
-        where: { id: invoiceId, clinicId, service: { contains: 'Direct Sale' } }
-    });
-    if (!existing) throw new AppError('POS sale not found', 404);
-    await prisma.invoice.delete({ where: { id: invoiceId } });
+    await prisma.invoice.delete({ where: { id: invoiceId, clinicId } });
     return { message: 'Sale deleted' };
 };
 
 export const getDailySalesReports = async (clinicId: number, dateStr: string) => {
-    // dateStr format: YYYY-MM-DD
-    // Use UTC for consistent date range filtering regardless of server timezone
     const startOfDay = new Date(`${dateStr}T00:00:00.000Z`);
     const endOfDay = new Date(`${dateStr}T23:59:59.999Z`);
 
@@ -418,55 +404,51 @@ export const getDailySalesReports = async (clinicId: number, dateStr: string) =>
                 gte: startOfDay,
                 lte: endOfDay
             },
-            OR: [
-                { service: { contains: 'Pharmacy:' } },
-                { service: { contains: 'Direct Sale:' } }
-            ]
+            items: {
+                some: {
+                    serviceType: 'pharmacy'
+                }
+            }
         },
         include: {
-            patient: { select: { name: true } }
+            patient: { select: { name: true } },
+            items: {
+                where: { serviceType: 'pharmacy' }
+            }
         },
         orderBy: { createdAt: 'desc' }
     });
 
     const dailyStats = {
         totalCount: invoices.length,
-        totalRevenue: invoices.reduce((sum, inv) => sum + Number(inv.amount || 0), 0),
+        totalRevenue: invoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0),
         medicines: [] as any[]
     };
 
     const medicineMap = new Map<string, { quantity: number, total: number }>();
 
     invoices.forEach(inv => {
-        if (!inv.service) return;
-
-        // Use regex for more flexible prefix removal (handles with or without space)
-        const content = inv.service.replace(/^(Pharmacy:|Direct Sale:)\s*/i, '');
-        const items = content.split(', ');
-
-        items.forEach(itemStr => {
-            if (!itemStr.trim()) return;
-            const parts = itemStr.trim().split(' x');
-            if (parts.length >= 2) {
-                const qtyVal = parts[parts.length - 1];
-                const qty = Number(qtyVal);
-                const name = parts.slice(0, parts.length - 1).join(' x').trim();
-
-                if (!isNaN(qty) && name) {
-                    const current = medicineMap.get(name) || { quantity: 0, total: 0 };
-                    medicineMap.set(name, {
-                        quantity: current.quantity + qty,
-                        total: 0
-                    });
-                }
+        inv.items.forEach(item => {
+            const name = item.description;
+            // Parse quantity if possible from description (e.g. "Medicine x2")
+            let qty = 1;
+            const match = name.match(/x(\d+)$/);
+            if (match) {
+                qty = parseInt(match[1]);
             }
+
+            const current = medicineMap.get(name) || { quantity: 0, total: 0 };
+            medicineMap.set(name, {
+                quantity: current.quantity + qty,
+                total: current.total + Number(item.amount)
+            });
         });
     });
 
     dailyStats.medicines = Array.from(medicineMap.entries()).map(([name, data]) => ({
         name,
         quantity: data.quantity,
-        totalAmount: 0
+        totalAmount: data.total
     }));
 
     type ShiftKey = 'Morning' | 'Evening' | 'Night';
@@ -478,53 +460,42 @@ export const getDailySalesReports = async (clinicId: number, dateStr: string) =>
     };
 
     const getShift = (date: Date): ShiftKey => {
-        try {
-            const h = date.getUTCHours(); // Consistency with start/end of day
-            if (h >= 6 && h < 14) return 'Morning';
-            if (h >= 14 && h < 22) return 'Evening';
-            return 'Night';
-        } catch {
-            return 'Morning';
-        }
+        const h = date.getUTCHours();
+        if (h >= 6 && h < 14) return 'Morning';
+        if (h >= 14 && h < 22) return 'Evening';
+        return 'Night';
     };
 
     const shiftMedicineMaps = {
-        Morning: new Map<string, number>(),
-        Evening: new Map<string, number>(),
-        Night: new Map<string, number>()
+        Morning: new Map<string, { quantity: number, total: number }>(),
+        Evening: new Map<string, { quantity: number, total: number }>(),
+        Night: new Map<string, { quantity: number, total: number }>()
     };
 
     invoices.forEach(inv => {
-        const createdAt = inv.createdAt || new Date();
-        const shift = getShift(new Date(createdAt));
-
+        const shift = getShift(new Date(inv.createdAt));
         shiftStats[shift].count++;
-        shiftStats[shift].revenue += Number(inv.amount || 0);
+        shiftStats[shift].revenue += Number(inv.totalAmount);
 
-        const content = inv.service.replace(/^(Pharmacy:|Direct Sale:)\s*/i, '');
-        const items = content.split(', ');
+        inv.items.forEach(item => {
+            const name = item.description;
+            let qty = 1;
+            const match = name.match(/x(\d+)$/);
+            if (match) qty = parseInt(match[1]);
 
-        items.forEach(itemStr => {
-            if (!itemStr.trim()) return;
-            const parts = itemStr.trim().split(' x');
-            if (parts.length >= 2) {
-                const qtyVal = parts[parts.length - 1];
-                const qty = Number(qtyVal);
-                const name = parts.slice(0, parts.length - 1).join(' x').trim();
-
-                if (!isNaN(qty) && name) {
-                    const currentQty = shiftMedicineMaps[shift].get(name) || 0;
-                    shiftMedicineMaps[shift].set(name, currentQty + qty);
-                }
-            }
+            const current = shiftMedicineMaps[shift].get(name) || { quantity: 0, total: 0 };
+            shiftMedicineMaps[shift].set(name, {
+                quantity: current.quantity + qty,
+                total: current.total + Number(item.amount)
+            });
         });
     });
 
     (Object.keys(shiftStats) as ShiftKey[]).forEach(shift => {
-        shiftStats[shift].medicines = Array.from(shiftMedicineMaps[shift].entries()).map(([name, qty]) => ({
+        shiftStats[shift].medicines = Array.from(shiftMedicineMaps[shift].entries()).map(([name, data]) => ({
             name,
-            quantity: qty,
-            totalAmount: 0
+            quantity: data.quantity,
+            totalAmount: data.total
         }));
     });
 

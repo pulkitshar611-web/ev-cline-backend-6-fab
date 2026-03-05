@@ -34,34 +34,51 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
 
     // Stats for ADMIN
     if (normalizedRole === 'ADMIN') {
-        const [totalStaff, totalPatients, todayAppts, todayRevenueAgg, pendingBillsAgg, totalAppts] = await Promise.all([
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const dayBeforeYesterday = new Date(yesterday);
+        dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 1);
+
+        const [totalStaff, totalPatients, todayAppts, yesterdayAppts, todayRevenueAgg, pendingBillsAgg, totalAppts, pendingBillsCount] = await Promise.all([
             prisma.clinicstaff.count({ where: { clinicId } }),
             prisma.patient.count({ where: { clinicId } }),
             prisma.appointment.count({ where: { clinicId, date: { gte: today, lt: tomorrow } } }),
+            prisma.appointment.count({ where: { clinicId, date: { gte: yesterday, lt: today } } }),
             prisma.invoice.aggregate({
                 where: { clinicId, status: 'Paid', date: { gte: today, lt: tomorrow } },
-                _sum: { amount: true }
+                _sum: { totalAmount: true }
             }),
             prisma.invoice.aggregate({
                 where: { clinicId, status: 'Pending' },
-                _sum: { amount: true }
+                _sum: { totalAmount: true }
             }),
-            prisma.appointment.count({ where: { clinicId } })
+            prisma.appointment.count({ where: { clinicId } }),
+            prisma.invoice.count({ where: { clinicId, status: 'Pending' } })
         ]);
+
+        // Dynamic Calculations
+        const growth = yesterdayAppts === 0 ? (todayAppts > 0 ? 100 : 0) : Math.round(((todayAppts - yesterdayAppts) / yesterdayAppts) * 100);
+        const capacity = (totalStaff || 1) * 8; // Assume 8 slots per staff per day
+        const utilization = Math.min(100, Math.round((todayAppts / capacity) * 100));
+        const systemStatus = pendingBillsCount > 50 ? 'Review Needed' : 'Healthy';
+
         return {
             totalStaff,
             totalPatients,
             todayAppointments: todayAppts,
             totalAppointments: totalAppts,
-            todayRevenue: Number(todayRevenueAgg._sum.amount || 0),
-            pendingBills: Number(pendingBillsAgg._sum.amount || 0)
+            todayRevenue: Number(todayRevenueAgg._sum.totalAmount || 0),
+            pendingBills: Number(pendingBillsAgg._sum.totalAmount || 0),
+            growth,
+            utilization,
+            systemStatus
         };
     }
 
 
     // Stats for DOCTOR
     if (normalizedRole === 'DOCTOR') {
-        const staff = await prisma.clinicstaff.findFirst({ where: { userId, clinicId } });
+        const staff = await prisma.clinicstaff.findFirst({ where: { userId: userId, clinicId } });
         const doctorId = staff?.id || 0;
         const [todayAppts, totalTreated, completedAppts, pendingAppts] = await Promise.all([
             prisma.appointment.count({ where: { clinicId, doctorId, date: { gte: today, lt: tomorrow } } }),
@@ -89,8 +106,8 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
         const [pendingPrescriptions, medicineSaleToday, lowStock, totalInventoryItems] = await Promise.all([
             prisma.service_order.count({ where: { clinicId, type: 'PHARMACY', testStatus: 'Pending' } }),
             prisma.invoice.aggregate({
-                where: { clinicId, status: 'Paid', service: { contains: 'Sale' }, date: { gte: today, lt: tomorrow } },
-                _sum: { amount: true }
+                where: { clinicId, status: 'Paid', date: { gte: today, lt: tomorrow } },
+                _sum: { totalAmount: true }
             }),
             prisma.inventory.count({ where: { clinicId, quantity: { lt: 10 } } }),
             prisma.inventory.count({ where: { clinicId } })
@@ -104,7 +121,7 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
             dispensedToday,
             lowStock,
             totalItems: totalInventoryItems,
-            medicineSaleToday: Number(medicineSaleToday._sum.amount || 0)
+            medicineSaleToday: Number(medicineSaleToday._sum.totalAmount || 0)
         };
     }
 
@@ -139,15 +156,15 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
             prisma.invoice.count({ where: { clinicId, status: 'Pending' } }),
             prisma.invoice.aggregate({
                 where: { clinicId, status: 'Paid', updatedAt: { gte: today, lt: tomorrow } },
-                _sum: { amount: true }
+                _sum: { totalAmount: true }
             }),
             prisma.invoice.aggregate({
                 where: { clinicId, status: 'Paid' },
-                _sum: { amount: true }
+                _sum: { totalAmount: true }
             }),
             prisma.invoice.aggregate({
                 where: { clinicId, status: 'Pending' },
-                _sum: { amount: true }
+                _sum: { totalAmount: true }
             }),
             prisma.invoice.findMany({
                 where: { clinicId },
@@ -158,9 +175,9 @@ export const getDashboardStats = async (role: string, clinicId?: number, userId?
         ]);
         return {
             pendingInvoices,
-            incomeToday: Number(incomeToday._sum.amount || 0),
-            totalRevenue: Number(totalRevenue._sum.amount || 0),
-            unpaidTotal: Number(unpaidTotal._sum.amount || 0),
+            incomeToday: Number(incomeToday._sum.totalAmount || 0),
+            totalRevenue: Number(totalRevenue._sum.totalAmount || 0),
+            unpaidTotal: Number(unpaidTotal._sum.totalAmount || 0),
             invoices: recentInvoices
         };
     }

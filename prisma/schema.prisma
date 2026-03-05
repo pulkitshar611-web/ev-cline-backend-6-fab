@@ -27,6 +27,7 @@ model appointment {
   service       String?
   clinic        clinic   @relation(fields: [clinicId], references: [id], map: "Appointment_clinicId_fkey")
   patient       patient  @relation(fields: [patientId], references: [id], map: "Appointment_patientId_fkey")
+  invoice       invoice[]
 
   @@index([clinicId], map: "Appointment_clinicId_fkey")
   @@index([patientId], map: "Appointment_patientId_fkey")
@@ -81,12 +82,15 @@ model clinic {
   inventory            inventory[]
   invoice              invoice[]
   medicalrecord        medicalrecord[]
+  medical_reports      medical_report[]
   notification         notification[]
   patient              patient[]
   patient_document     patient_document[]
   service_order        service_order[]
   staff_document       staff_document[]
   subscriptionInvoices subscription_invoice[]
+  medical_report_templates medical_report_templates[]
+  clinic_service       clinic_service[]
 }
 
 model clinicstaff {
@@ -139,21 +143,39 @@ model formtemplate {
 }
 
 model invoice {
-  id        String   @id
-  clinicId  Int
-  patientId Int
-  doctorId  Int?
-  service   String
-  amount    Decimal  @db.Decimal(10, 2)
-  status    String   @default("Pending")
-  date      DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  clinic    clinic   @relation(fields: [clinicId], references: [id], map: "Invoice_clinicId_fkey")
-  patient   patient  @relation(fields: [patientId], references: [id], map: "Invoice_patientId_fkey")
+  id            String         @id
+  clinicId      Int
+  patientId     Int
+  visitId       Int?           // Linked to appointment ID
+  doctorId      Int?           // Doctor responsible for the visit
+  totalAmount   Decimal        @db.Decimal(10, 2) @default(0)
+  status        String         @default("Pending") // Pending, Paid, Partially Paid, Cancelled
+  paymentMethod String?        // Cash, Card, Online, etc.
+  createdBy     Int?           // User ID of staff who created it
+  date          DateTime       @default(now())
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
+  clinic        clinic         @relation(fields: [clinicId], references: [id], map: "Invoice_clinicId_fkey")
+  patient       patient        @relation(fields: [patientId], references: [id], map: "Invoice_patientId_fkey")
+  appointment   appointment?   @relation(fields: [visitId], references: [id], map: "Invoice_visitId_fkey")
+  items         invoice_item[]
 
   @@index([clinicId], map: "Invoice_clinicId_fkey")
   @@index([patientId], map: "Invoice_patientId_fkey")
+  @@index([visitId], map: "Invoice_visitId_fkey")
+}
+
+model invoice_item {
+  id          Int      @id @default(autoincrement())
+  invoiceId   String
+  serviceType String   // consultation, lab, radiology, pharmacy
+  serviceId   Int?     // id of appointment or service_order
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+  invoice     invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
 }
 
 model medicalrecord {
@@ -247,6 +269,7 @@ model patient {
   formresponse          formresponse[]
   invoice               invoice[]
   medicalrecord         medicalrecord[]
+  medical_reports       medical_report[]
   clinic                clinic             @relation(fields: [clinicId], references: [id], map: "Patient_clinicId_fkey")
   patient_document      patient_document[]
   service_order         service_order[]
@@ -268,6 +291,21 @@ model inventory {
   @@index([clinicId])
 }
 
+model clinic_service {
+  id          Int      @id @default(autoincrement())
+  clinicId    Int
+  name        String
+  description String?  @db.Text
+  price       Decimal  @db.Decimal(10, 2)
+  type        String   // LAB, RADIOLOGY, CONSULTATION, OTHER
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  clinic      clinic   @relation(fields: [clinicId], references: [id])
+
+  @@index([clinicId])
+}
+
 model service_order {
   id            Int      @id @default(autoincrement())
   clinicId      Int
@@ -278,6 +316,7 @@ model service_order {
   paymentStatus String   @default("Pending")
   testStatus    String   @default("Pending")
   result        String?  @db.LongText
+  amount        Decimal  @db.Decimal(10, 2) @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @default(now()) @updatedAt
   clinic        clinic   @relation(fields: [clinicId], references: [id])
@@ -304,6 +343,7 @@ model user {
   otpExpiry           DateTime?
   auditlog            auditlog[]
   clinicstaff         clinicstaff[]
+  medical_reports     medical_report[]
 }
 
 model subscription_invoice {
@@ -345,6 +385,51 @@ model patient_document {
   @@index([patientId])
 }
 
+model medical_report_templates {
+  id        Int      @id @default(autoincrement())
+  clinicId  Int
+  name      String
+  fields    Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  clinic          clinic           @relation(fields: [clinicId], references: [id])
+  medical_reports medical_report[]
+
+  @@index([clinicId])
+}
+
+model medical_report {
+  id               Int      @id @default(autoincrement())
+  clinicId         Int
+  patientId        Int
+  doctorId         Int
+  templateId       Int?
+  companyName      String?
+  employeeId       String?
+  diagnosisSummary String?  @db.Text
+  treatmentGiven   String?  @db.Text
+  restDays         Int?
+  sickLeaveFrom    DateTime?
+  sickLeaveTo      DateTime?
+  fitToResume      Boolean? @default(true)
+  dynamicData      Json?
+  reportDate       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  clinic   clinic                    @relation(fields: [clinicId], references: [id])
+  patient  patient                   @relation(fields: [patientId], references: [id])
+  doctor   user                      @relation(fields: [doctorId], references: [id])
+  template medical_report_templates? @relation(fields: [templateId], references: [id])
+
+  @@index([clinicId])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([templateId])
+}
+
 enum clinicstaff_role {
   SUPER_ADMIN
   ADMIN
@@ -369,4 +454,32 @@ enum user_role {
   ACCOUNTANT
   PATIENT
   DOCUMENT_CONTROLLER
+}
+
+model subscription_plan {
+  id          Int      @id @default(autoincrement())
+  name        String
+  price       Decimal  @db.Decimal(10, 2)
+  duration    String   @default("Monthly")
+  features    String?  @db.LongText
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  requests    registration_request[]
+}
+
+model registration_request {
+  id          Int      @id @default(autoincrement())
+  firstName   String
+  lastName    String
+  email       String   @unique
+  password    String
+  address     String?  @db.Text
+  planId      Int?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  plan        subscription_plan? @relation(fields: [planId], references: [id])
 }

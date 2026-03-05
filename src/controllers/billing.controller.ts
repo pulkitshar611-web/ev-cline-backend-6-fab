@@ -19,6 +19,11 @@ export const createInvoice = asyncHandler(async (req: AuthRequest, res: Response
 });
 
 export const updateInvoice = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const invoice = await billingService.updateInvoiceStatus(req.clinicId!, req.params.id as string, req.body.status);
+    const invoice = await billingService.updateInvoiceStatus(req.clinicId!, req.params.id as string, req.body.status, req.body.paymentMethod);
     res.status(200).json({ status: 'success', data: invoice });
+});
+
+export const getPendingItems = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const items = await billingService.getPendingBillingItems(req.clinicId!, Number(req.params.patientId));
+    res.status(200).json({ status: 'success', data: items });
 });

@@ -25,6 +25,18 @@ export const getLabOrders = async (clinicId: number, type: 'LAB' | 'RADIOLOGY', 
 };
 
 export const updateLabStatus = async (clinicId: number, orderId: number, status: string, resultData?: string) => {
+    // 1. Fetch current order to check payment status
+    const order = await prisma.service_order.findUnique({
+        where: { id: orderId, clinicId }
+    });
+
+    if (!order) throw new AppError('Order not found', 404);
+
+    // 2. Dependency Rule: Cannot move from Pending if unpaid
+    if (order.testStatus === 'Pending' && status !== 'Rejected' && order.paymentStatus !== 'Paid') {
+        throw new AppError('Payment required before starting this service.', 400);
+    }
+
     // Status Flow: Pending -> Sample Collected -> Completed
     const data: any = { testStatus: status };
     if (resultData) {

@@ -14,5 +14,6 @@ router.get('/dashboard-stats', billingController.getAccountingDashboardStats);
 router.use(restrictTo('RECEPTIONIST', 'ADMIN', 'ACCOUNTANT', 'ACCOUNTING'));
 router.post('/', billingController.createInvoice);
 router.patch('/invoices/:id', billingController.updateInvoice);
+router.get('/pending/:patientId', billingController.getPendingItems);
 
 export default router;

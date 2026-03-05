@@ -81,3 +81,23 @@ export const resetPassword = asyncHandler(async (req: AuthRequest, res: Response
     await clinicService.resetUserPassword(req.clinicId!, Number(req.params.id), password);
     res.status(200).json({ success: true, message: 'Password reset successfully' });
 });
+
+export const getClinicServices = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const services = await clinicService.getClinicServices(req.clinicId!);
+    res.status(200).json({ success: true, data: services });
+});
+
+export const createClinicService = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const service = await clinicService.createClinicService(req.clinicId!, req.body);
+    res.status(201).json({ success: true, message: 'Service created successfully', data: service });
+});
+
+export const updateClinicService = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const service = await clinicService.updateClinicService(req.clinicId!, Number(req.params.id), req.body);
+    res.status(200).json({ success: true, message: 'Service updated successfully', data: service });
+});
+
+export const deleteClinicService = asyncHandler(async (req: AuthRequest, res: Response) => {
+    await clinicService.deleteClinicService(req.clinicId!, Number(req.params.id));
+    res.status(200).json({ success: true, message: 'Service deleted successfully' });
+});

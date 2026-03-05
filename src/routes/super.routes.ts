@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as superController from '../controllers/super.controller.js';
+import * as saasController from '../controllers/saas.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.js';
 import { validate } from '../middlewares/validate.js';
 import { createClinicSchema, createStaffSchema } from '../validations/super.validation.js';
@@ -44,10 +45,24 @@ router.patch('/settings/smtp', superController.updateSMTPSettings);
 router.get('/system/storage', superController.getStorageStats);
 router.post('/system/backup', superController.triggerBackup);
 
+// ==================== PROFILE ====================
+router.get('/profile', superController.getProfile);
+router.patch('/profile', superController.updateProfile);
+
 // ==================== BILLING & REPORTS ====================
 router.get('/invoices', superController.getInvoices);
 router.post('/invoices', superController.generateInvoice);
 router.patch('/invoices/:id/status', superController.updateInvoiceStatus);
 router.get('/reports', superController.getReports);
+
+// ==================== SAAS PLANS & REGISTRATIONS ====================
+router.get('/plans', saasController.getPlans);
+router.post('/plans', saasController.createPlan);
+router.patch('/plans/:id', saasController.updatePlan);
+router.delete('/plans/:id', saasController.deletePlan);
+
+router.get('/registrations', saasController.getRegistrations);
+router.post('/registrations/:id/approve', saasController.approveRegistration);
+router.post('/registrations/:id/reject', saasController.rejectRegistration);
 
 export default router;

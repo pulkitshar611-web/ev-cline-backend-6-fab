@@ -1008,3 +1008,42 @@ export const triggerDatabaseBackup = async () => {
         estimatedTime: '5-10 minutes'
     };
 };
+
+// ==================== PROFILE ====================
+export const getUserById = async (userId: number) => {
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true, phone: true, role: true, createdAt: true }
+    });
+    if (!user) throw new AppError('User not found', 404);
+    return user;
+};
+
+export const updateUserProfile = async (userId: number, data: { name?: string; email?: string; currentPassword?: string; newPassword?: string }) => {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new AppError('User not found', 404);
+
+    const updateData: any = {};
+
+    if (data.name) updateData.name = data.name;
+    if (data.email && data.email !== user.email) {
+        const existing = await prisma.user.findUnique({ where: { email: data.email } });
+        if (existing) throw new AppError('Email already in use by another account', 400);
+        updateData.email = data.email;
+    }
+
+    if (data.newPassword) {
+        if (!data.currentPassword) throw new AppError('Current password is required to set a new password', 400);
+        const isMatch = await bcrypt.compare(data.currentPassword, user.password);
+        if (!isMatch) throw new AppError('Current password is incorrect', 401);
+        updateData.password = await bcrypt.hash(data.newPassword, 12);
+    }
+
+    const updated = await prisma.user.update({
+        where: { id: userId },
+        data: updateData,
+        select: { id: true, name: true, email: true, phone: true, role: true }
+    });
+
+    return updated;
+};

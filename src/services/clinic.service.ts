@@ -20,12 +20,12 @@ export const getClinicStats = async (clinicId: number) => {
         prisma.patient.count({ where: { clinicId } }),
         prisma.invoice.aggregate({
             where: { clinicId, status: 'Paid', date: { gte: today, lt: tomorrow } },
-            _sum: { amount: true }
+            _sum: { totalAmount: true }
         }),
         prisma.invoice.count({ where: { clinicId, status: 'Pending' } }),
         prisma.invoice.aggregate({
             where: { clinicId, status: 'Paid' },
-            _sum: { amount: true }
+            _sum: { totalAmount: true }
         })
     ]);
 
@@ -34,9 +34,9 @@ export const getClinicStats = async (clinicId: number) => {
         totalStaff: staffCount,
         todayAppointments: todayAppts,
         totalPatients,
-        todayRevenue: Number(todayRevenue._sum.amount || 0),
+        todayRevenue: Number(todayRevenue._sum.totalAmount || 0),
         pendingBills,
-        revenue: Number(totalRevenue._sum.amount || 0)
+        revenue: Number(totalRevenue._sum.totalAmount || 0)
     };
 };
 
@@ -518,6 +518,92 @@ export const resetUserPassword = async (clinicId: number, userId: number, passwo
             userId: userId,
             clinicId,
             details: JSON.stringify({ note: 'Admin reset password' })
+        }
+    });
+
+    return { success: true };
+};
+
+export const getClinicServices = async (clinicId: number) => {
+    return await prisma.clinic_service.findMany({
+        where: { clinicId },
+        orderBy: { name: 'asc' }
+    });
+};
+
+export const createClinicService = async (clinicId: number, data: any) => {
+    const { name, description, price, type, isActive } = data;
+    const service = await prisma.clinic_service.create({
+        data: {
+            clinicId,
+            name,
+            description,
+            price: price || 0,
+            type: type || 'OTHER',
+            isActive: isActive !== undefined ? isActive : true
+        }
+    });
+
+    await prisma.auditlog.create({
+        data: {
+            action: 'Service Created',
+            performedBy: 'ADMIN',
+            clinicId,
+            details: JSON.stringify({ serviceId: service.id, name, type, price })
+        }
+    });
+
+    return service;
+};
+
+export const updateClinicService = async (clinicId: number, serviceId: number, data: any) => {
+    const { name, description, price, type, isActive } = data;
+
+    // Verify it belongs to clinic
+    const existing = await prisma.clinic_service.findFirst({
+        where: { id: serviceId, clinicId }
+    });
+    if (!existing) throw new AppError('Service not found or unauthorized', 404);
+
+    const service = await prisma.clinic_service.update({
+        where: { id: serviceId },
+        data: {
+            name: name ?? existing.name,
+            description: description !== undefined ? description : existing.description,
+            price: price !== undefined ? price : existing.price,
+            type: type ?? existing.type,
+            isActive: isActive !== undefined ? isActive : existing.isActive
+        }
+    });
+
+    await prisma.auditlog.create({
+        data: {
+            action: 'Service Updated',
+            performedBy: 'ADMIN',
+            clinicId,
+            details: JSON.stringify({ serviceId, updates: data })
+        }
+    });
+
+    return service;
+};
+
+export const deleteClinicService = async (clinicId: number, serviceId: number) => {
+    const existing = await prisma.clinic_service.findFirst({
+        where: { id: serviceId, clinicId }
+    });
+    if (!existing) throw new AppError('Service not found or unauthorized', 404);
+
+    await prisma.clinic_service.delete({
+        where: { id: serviceId }
+    });
+
+    await prisma.auditlog.create({
+        data: {
+            action: 'Service Deleted',
+            performedBy: 'ADMIN',
+            clinicId,
+            details: JSON.stringify({ serviceId, name: existing.name })
         }
     });
 

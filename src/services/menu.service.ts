@@ -21,6 +21,7 @@ export const getMenuByRole = async (role: string) => {
             { name: 'Forms', path: '/clinic-admin/forms', icon: 'FiFileText' },
             { name: 'Modules', path: '/clinic-admin/modules', icon: 'FiPackage' },
             { name: 'Departments', path: '/clinic-admin/departments', icon: 'FiBriefcase' },
+            { name: 'Clinic Services', path: '/clinic-admin/services', icon: 'FiList' },
             { name: 'Audit Logs', path: '/clinic-admin/audit-logs', icon: 'FiFileText' },
             { name: 'Settings', path: '/clinic-admin/settings', icon: 'FiSettings' },
         ],

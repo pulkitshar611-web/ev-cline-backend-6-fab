@@ -37,14 +37,19 @@ export const saveCompleteEMR = async (clinicId: number, doctorId: number, payloa
 
         // 2. Save Prescriptions
         for (const presc of prescriptions) {
-            await tx.medicalrecord.create({
+            await tx.service_order.create({
                 data: {
                     clinicId,
                     patientId,
                     doctorId,
-                    type: 'PRESCRIPTION',
-                    data: JSON.stringify(presc),
-                    status: 'Pending' // Pharmacy handles this
+                    type: 'PHARMACY',
+                    testName: Array.isArray(presc.items)
+                        ? presc.items.map((i: any) => `${i.medicineName || i.name} x${i.quantity}`).join(', ')
+                        : (presc.medicineName || 'Prescription'),
+                    amount: presc.totalAmount ? Number(presc.totalAmount) : (presc.amount ? Number(presc.amount) : 0),
+                    paymentStatus: 'Pending',
+                    testStatus: 'Pending',
+                    result: JSON.stringify(presc)
                 }
             });
 
@@ -72,6 +77,7 @@ export const saveCompleteEMR = async (clinicId: number, doctorId: number, payloa
                     doctorId,
                     type: 'LAB',
                     testName: lab.testName,
+                    amount: lab.amount ? Number(lab.amount) : 0,
                     paymentStatus: 'Pending',
                     testStatus: 'Pending'
                 }
@@ -101,6 +107,7 @@ export const saveCompleteEMR = async (clinicId: number, doctorId: number, payloa
                     doctorId,
                     type: 'RADIOLOGY',
                     testName: rad.testName,
+                    amount: rad.amount ? Number(rad.amount) : 0,
                     paymentStatus: 'Pending',
                     testStatus: 'Pending'
                 }
@@ -120,8 +127,7 @@ export const saveCompleteEMR = async (clinicId: number, doctorId: number, payloa
                 }
             });
         }
-
-        // 5. Update appointment status to Pending-Payment
+        // 5. Update appointment status
         if (appointmentId) {
             await tx.appointment.update({
                 where: { id: appointmentId },
@@ -136,19 +142,6 @@ export const saveCompleteEMR = async (clinicId: number, doctorId: number, payloa
             await tx.patient.update({
                 where: { id: patientId },
                 data: { status: 'Pending Payment' }
-            });
-
-            // Create Consultation Invoice
-            await tx.invoice.create({
-                data: {
-                    id: `CONS-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-                    clinicId,
-                    patientId,
-                    doctorId,
-                    service: 'Consultation Fee',
-                    amount: billingAmount ? Number(billingAmount) : 150,
-                    status: 'Pending'
-                }
             });
         }
 
@@ -173,7 +166,7 @@ export const getHistory = async (clinicId: number, patientId: number) => {
 };
 
 export const getPatientFullProfile = async (clinicId: number, patientId: number) => {
-    const [patient, medicalRecords, serviceOrders, documents, appointments, invoices] = await Promise.all([
+    const [patient, medicalRecords, serviceOrders, documents, appointments, invoices, medicalReports] = await Promise.all([
         prisma.patient.findUnique({
             where: { id: patientId }
         }),
@@ -197,26 +190,50 @@ export const getPatientFullProfile = async (clinicId: number, patientId: number)
         prisma.invoice.findMany({
             where: { clinicId, patientId },
             orderBy: { date: 'desc' }
+        }),
+        prisma.medical_report.findMany({
+            where: { clinicId, patientId },
+            include: { template: true },
+            orderBy: { reportDate: 'desc' }
         })
     ]);
 
     if (!patient) throw new AppError('Patient not found', 404);
 
+    const clinicalDocs = medicalRecords.filter(r => !['ASSESSMENT', 'NOTE', 'PRESCRIPTION'].includes(r.type)).map(r => {
+        const parsedData = r.data && typeof r.data === 'object' ? r.data : (r.data ? JSON.parse(r.data as any) : {});
+        return {
+            id: r.id,
+            clinicId: r.clinicId,
+            patientId: r.patientId,
+            type: r.type,
+            name: parsedData.fileName || r.type,
+            url: parsedData.fileUrl || parsedData.url,
+            notes: parsedData.notes,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            isClinical: true
+        };
+    });
+
     return {
         patient,
-        medicalRecords: medicalRecords.map(r => ({
+        medicalRecords: medicalRecords.filter(r => ['ASSESSMENT', 'NOTE', 'PRESCRIPTION'].includes(r.type)).map(r => ({
             ...r,
-            data: r.data ? JSON.parse(r.data) : {}
+            data: r.data ? JSON.parse(r.data as any) : {}
         })),
         serviceOrders: serviceOrders.map(o => ({
             ...o,
             result: o.result && (o.result.startsWith('{') || o.result.startsWith('[')) ? JSON.parse(o.result) : o.result
         })),
-        documents,
+        documents: [...documents, ...clinicalDocs],
         appointments,
-        invoices
+        invoices,
+        medical_reports: medicalReports
     };
 };
+
+
 
 export const getAllAssessments = async (clinicId: number, doctorId?: number) => {
     const where: any = { clinicId };

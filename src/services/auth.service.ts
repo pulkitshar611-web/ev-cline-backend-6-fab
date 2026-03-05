@@ -82,15 +82,80 @@ export const login = async (data: any, ip: string, device: string) => {
         });
     } catch (e: any) {
         console.error('Error fetching staff records:', e);
-        // If there's an enum error (like empty string in DB), we still want the user to be able to login if they are SUPER_ADMIN
-        // or have other valid records. But usually Prisma findMany will fail the whole query if one record is bad.
         if (e.message && e.message.includes('not found in enum')) {
             console.warn('[AUTH SERVICE] Detected invalid enum value in clinicstaff table. Attempting to proceed with empty staff list.');
             staffRecords = [];
         } else {
-            throw e; // Rethrow other critical errors
+            throw e;
         }
     }
+
+    // ── PATIENT multi-clinic flow ────────────────────────────────────────────
+    const isPatientRole = user.role === 'PATIENT' && staffRecords.length === 0;
+
+    if (isPatientRole) {
+        // Find all clinics where this patient is registered (by email)
+        const patientRecords = await prisma.patient.findMany({
+            where: { email: user.email },
+            include: { clinic: { select: { id: true, name: true, location: true, status: true, logo: true } } }
+        });
+
+        if (patientRecords.length === 0) {
+            throw new AppError('No clinic registration found for this patient. Please contact your clinic.', 403);
+        }
+
+        // Filter to active clinics only
+        const activeClinics = patientRecords.filter(p => (p.clinic.status || '').toLowerCase() === 'active');
+        if (activeClinics.length === 0) {
+            throw new AppError('All your registered clinics are currently inactive. Please contact your clinic administrator.', 403);
+        }
+
+        let targetClinicId: number | undefined = undefined;
+
+        if (activeClinics.length === 1) {
+            targetClinicId = activeClinics[0].clinicId;
+        }
+
+        const token = signToken({
+            id: user.id,
+            role: 'PATIENT',
+            clinicId: targetClinicId
+        });
+
+        // Audit Log
+        await prisma.auditlog.create({
+            data: {
+                action: 'Patient Login',
+                performedBy: user.email,
+                userId: user.id,
+                clinicId: targetClinicId,
+                ipAddress: ip,
+                device: device,
+                details: JSON.stringify({ clinicCount: activeClinics.length })
+            }
+        });
+
+        return {
+            success: true,
+            otpRequired: false,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: 'PATIENT',
+                roles: ['PATIENT'],
+                clinics: activeClinics.map(p => p.clinicId),
+                patientClinics: activeClinics.map(p => ({
+                    id: p.clinic.id,
+                    name: p.clinic.name,
+                    location: p.clinic.location,
+                    patientId: p.id
+                }))
+            },
+            token
+        };
+    }
+    // ── End PATIENT flow ─────────────────────────────────────────────────────
 
     // Block login if user is not SUPER_ADMIN and ALL their clinics are inactive
     const isSuperAdminEarly = user.role === 'SUPER_ADMIN';
@@ -125,17 +190,14 @@ export const login = async (data: any, ip: string, device: string) => {
     if (isSuperAdmin) {
         tokenRole = 'SUPER_ADMIN';
     } else if (staffRecords.length === 1) {
-        // Single clinic staff - use their clinic role
         tokenRole = staffRecords[0].role;
         targetClinicId = staffRecords[0].clinicId;
     } else if (staffRecords.length > 1) {
-        // Multiple clinics - prioritize: ADMIN > DOCTOR > RECEPTIONIST
         if (roles.includes('ADMIN')) tokenRole = 'ADMIN';
         else if (roles.includes('DOCTOR')) tokenRole = 'DOCTOR';
         else if (roles.includes('RECEPTIONIST')) tokenRole = 'RECEPTIONIST';
-        else tokenRole = staffRecords[0].role; // Fallback to first role
+        else tokenRole = staffRecords[0].role;
     } else {
-        // No staff records - use user.role as is
         tokenRole = user.role;
     }
 
@@ -336,11 +398,53 @@ export const selectClinic = async (userId: number, clinicId: number, role: strin
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new AppError('User not found', 404);
 
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    const isPatient = role === 'PATIENT' || user.role === 'PATIENT';
+
+    // ── PATIENT clinic selection ─────────────────────────────────────────────
+    if (isPatient && !isSuperAdmin) {
+        const patientRecord = await prisma.patient.findFirst({
+            where: { email: user.email, clinicId },
+            include: { clinic: { select: { id: true, name: true, status: true, location: true } } }
+        });
+
+        if (!patientRecord) {
+            throw new AppError('You are not registered in this clinic', 403);
+        }
+
+        if ((patientRecord.clinic.status || '').toLowerCase() !== 'active') {
+            throw new AppError('This clinic is currently inactive. Please contact your clinic administrator.', 403);
+        }
+
+        const token = signToken({
+            id: userId,
+            clinicId: clinicId,
+            role: 'PATIENT',
+            patientId: patientRecord.id
+        }, '8h');
+
+        // Audit Log
+        await prisma.auditlog.create({
+            data: {
+                action: 'Patient Clinic Selected',
+                performedBy: user.email,
+                userId,
+                clinicId,
+                ipAddress: ip,
+                device: device,
+                details: JSON.stringify({ patientId: patientRecord.id })
+            }
+        });
+
+        return { token };
+    }
+    // ── End PATIENT clinic selection ─────────────────────────────────────────
+
+    // Staff clinic selection (existing flow)
     const staffRecords = await prisma.clinicstaff.findMany({
         where: { userId, clinicId }
     });
 
-    const isSuperAdmin = user.role === 'SUPER_ADMIN';
     const staffRecord = staffRecords.find(r => r.role === role);
 
     // Security check

@@ -123,7 +123,7 @@ export const registerPatient = async (clinicId: number, data: any) => {
         }
     }
 
-    // If it's a walk-in, create an appointment and a pending invoice
+    // If it's a walk-in, create an appointment
     if (doctorId && fees) {
         const today = new Date();
         const tokenNumber = await getNextToken(clinicId);
@@ -139,18 +139,6 @@ export const registerPatient = async (clinicId: number, data: any) => {
                 queueStatus: 'Checked-In',
                 source: 'Walk-in',
                 billingAmount: Number(fees)
-            }
-        });
-
-        await prisma.invoice.create({
-            data: {
-                id: `INV-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`,
-                clinicId,
-                patientId: patient.id,
-                doctorId: Number(doctorId),
-                service: 'Walk-in Consultation',
-                amount: Number(fees),
-                status: 'Pending'
             }
         });
     }

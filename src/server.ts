@@ -25,6 +25,7 @@ import documentRoutes from './routes/document.routes.js';
 import menuRoutes from './routes/menu.routes.js';
 import publicRoutes from './routes/public.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
+import medicalReportRoutes from './routes/medicalReport.routes.js';
 
 import { startTime } from './utils/system.js';
 
@@ -45,17 +46,18 @@ app.use(helmet({
 }));
 app.use(compression());
 
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || true, // ✅ Railway + Local both
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Requested-With',
-      'x-clinic-id'
-    ]
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "x-clinic-id",
+    ],
   })
 );
 
@@ -97,6 +99,7 @@ app.use('/api/document-controller', documentRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/medical-reports', medicalReportRoutes);
 
 /* -------------------- HEALTH CHECK -------------------- */
 
