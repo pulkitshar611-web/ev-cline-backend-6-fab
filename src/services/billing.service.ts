@@ -51,13 +51,49 @@ export const getPendingBillingItems = async (clinicId: number, patientId: number
             amount: Number(a.billingAmount || 0),
             date: a.date
         })),
-        orders: orders.map(o => ({
-            id: o.id,
-            type: o.type.toLowerCase(),
-            description: `${o.type} Order: ${o.testName}`,
-            amount: Number(o.amount || 0),
-            date: o.createdAt
-        }))
+        orders: orders.map(o => {
+            let actualAmount = Number(o.amount || 0);
+            let description = `${o.type} Order: ${o.testName}`;
+
+            // Parse result for Pharmacy orders to get dynamic amount and real items
+            if (o.type.toUpperCase() === 'PHARMACY' && o.result) {
+                try {
+                    const parsed = JSON.parse(o.result);
+
+                    // Priority 1: Direct amount field
+                    if (parsed.amount !== undefined) {
+                        actualAmount = Number(parsed.amount);
+                    }
+                    // Priority 2: totalAmount from doctor payload
+                    else if (parsed.totalAmount !== undefined) {
+                        actualAmount = Number(parsed.totalAmount);
+                    }
+                    // Priority 3: Derived from components (unitPrice * quantity)
+                    else if (parsed.unitPrice && parsed.quantity) {
+                        actualAmount = Number(parsed.unitPrice) * Number(parsed.quantity);
+                    }
+
+                    // Handle Description
+                    if (parsed.items && Array.isArray(parsed.items)) {
+                        description = `Pharmacy: ${parsed.items.join(', ')}`;
+                    } else if (parsed.testName && parsed.quantity) {
+                        description = `Pharmacy: ${parsed.testName} x${parsed.quantity}`;
+                    } else if (parsed.items) {
+                        description = `Pharmacy: ${parsed.items}`;
+                    }
+                } catch (e) {
+                    console.error("Failed to parse pharmacy order result for billing:", o.id);
+                }
+            }
+
+            return {
+                id: o.id,
+                type: o.type.toLowerCase(),
+                description,
+                amount: actualAmount,
+                date: o.createdAt
+            };
+        })
     };
 };
 

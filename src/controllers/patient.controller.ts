@@ -19,6 +19,18 @@ export const getMyAppointments = async (req: Request, res: Response, next: NextF
     }
 };
 
+export const cancelAppointment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const authReq = req as AuthRequest;
+        const email = authReq.user!.email;
+        const { appointmentId } = req.params;
+        await patientService.cancelAppointment(Number(appointmentId), email);
+        res.json({ success: true, message: 'Appointment cancelled successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const getMyMedicalRecords = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const authReq = req as AuthRequest;
@@ -164,7 +176,8 @@ export const deletePatientDocument = async (req: Request, res: Response, next: N
         const userEmail = authReq.user?.email;
         const userRole = authReq.user?.role;
         const { documentId } = req.params;
-        await patientService.deletePatientDocument(Number(documentId), clinicId, userEmail, userRole);
+        const { table } = req.query;
+        await patientService.deletePatientDocument(Number(documentId), clinicId, userEmail, userRole, table as string);
         res.json({ success: true, message: 'Document deleted successfully' });
     } catch (error) {
         next(error);

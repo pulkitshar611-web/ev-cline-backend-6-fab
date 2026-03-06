@@ -86,15 +86,36 @@ export const getPharmacyOrders = async (clinicId: number) => {
     });
 
     const combined = [
-        ...serviceOrders.map((o: any) => ({
-            id: o.id,
-            patientName: o.patient?.name,
-            testName: o.testName,
-            status: o.testStatus || o.status,
-            paymentStatus: o.paymentStatus,
-            createdAt: o.createdAt,
-            source: 'ORDER'
-        })),
+        ...serviceOrders.map((o: any) => {
+            let items = [];
+            try {
+                if (o.result && (o.result.startsWith('{') || o.result.startsWith('['))) {
+                    const parsed = JSON.parse(o.result);
+                    if (Array.isArray(parsed.items)) {
+                        items = parsed.items;
+                    } else if (parsed.medicineName || parsed.name || parsed.testName) {
+                        if (!parsed.medicineName && parsed.testName) parsed.medicineName = parsed.testName;
+                        items = [parsed];
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse order result for pharmacy:", o.id);
+            }
+
+            return {
+                id: o.id,
+                patientName: o.patient?.name,
+                testName: items.length > 0
+                    ? items.map((i: any) => i.medicineName || i.name || 'Medicine').join(', ')
+                    : o.testName,
+                items: items,
+                status: o.testStatus || o.status,
+                paymentStatus: o.paymentStatus,
+                result: o.result,
+                createdAt: o.createdAt,
+                source: 'ORDER'
+            };
+        }),
         ...prescribedRecords.map((r: any) => {
             let data: any = {};
             try {

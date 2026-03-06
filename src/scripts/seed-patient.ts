@@ -75,13 +75,11 @@ const seedPatient = async () => {
         // 4. Create Sample Invoice (Past)
         await prisma.invoice.create({
             data: {
-                id: `INV-${Date.now()}`,
-                clinicId: 1,
+                id: `INV-${Date.now().toString().slice(-6)}`,
+                clinicId: 1, // Assuming clinic.id refers to the hardcoded clinicId 1
                 patientId: patient.id,
-                doctorId: 3,
-                service: 'General Consultation',
-                amount: 350,
-                status: 'Paid',
+                totalAmount: 150.00,
+                status: 'Pending',
                 date: new Date(new Date().setDate(new Date().getDate() - 10)) // 10 days ago
             }
         });

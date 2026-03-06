@@ -38,13 +38,45 @@ export const getMyAppointments = async (userId: number, email: string, clinicId?
         where: appointmentWhere,
         include: {
             clinic: { select: { name: true } },
+            doctor: {
+                include: {
+                    user: { select: { name: true } }
+                }
+            }
         },
         orderBy: {
             date: 'desc'
         }
     });
 
-    return appointments;
+    // Flatten doctor name for frontend convenience
+    return appointments.map((app: any) => ({
+        ...app,
+        doctor: app.doctor ? {
+            ...app.doctor,
+            name: app.doctor.user?.name
+        } : null
+    }));
+};
+
+export const cancelAppointment = async (appointmentId: number, email: string) => {
+    const appointment = await prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: { patient: { select: { email: true } } }
+    });
+
+    if (!appointment) {
+        throw new AppError('Appointment not found', 404);
+    }
+
+    if (appointment.patient.email !== email) {
+        throw new AppError('Unauthorized to cancel this appointment', 403);
+    }
+
+    return await prisma.appointment.update({
+        where: { id: appointmentId },
+        data: { status: 'Cancelled' }
+    });
 };
 
 export const getMyMedicalRecords = async (userId: number, email: string, clinicId?: number) => {
@@ -182,38 +214,70 @@ export const getPatientDocuments = async (clinicId: number, patientId: number) =
     });
 };
 
-export const deletePatientDocument = async (documentId: number, clinicId?: number, userEmail?: string, userRole?: string) => {
-    // Basic criteria: document must exist by ID
-    let whereClause: any = { id: documentId };
+export const deletePatientDocument = async (recordId: number, clinicId?: number, userEmail?: string, userRole?: string, tableHint?: string) => {
+    const isOwner = (item: any) => {
+        if (userRole === 'PATIENT' && userEmail) {
+            return item.patient?.email === userEmail;
+        }
+        if (clinicId) {
+            return item.clinicId === clinicId;
+        }
+        return false;
+    };
 
-    // Find the document before ensuring authorization (so we can check patient email ownership)
-    const document = await prisma.patient_document.findUnique({
-        where: { id: documentId },
-        include: { patient: { select: { email: true } } }
-    });
-
-    if (!document) {
-        throw new AppError('Document not found', 404);
+    // 1. patient_document table
+    if (!tableHint || tableHint === 'patient_document') {
+        const document = await prisma.patient_document.findUnique({
+            where: { id: recordId },
+            include: { patient: { select: { email: true } } }
+        });
+        if (document) {
+            if (!isOwner(document)) throw new AppError('Access denied', 403);
+            await prisma.patient_document.delete({ where: { id: recordId } });
+            return;
+        }
     }
 
-    // Role-based authorization
-    if (userRole === 'PATIENT' && userEmail) {
-        // Must belong to the logged-in patient's email
-        if (document.patient.email !== userEmail) {
-            throw new AppError('Access denied', 403);
+    // 2. medical_report table
+    if (!tableHint || tableHint === 'medical_report') {
+        const report = await prisma.medical_report.findUnique({
+            where: { id: recordId },
+            include: { patient: { select: { email: true } } }
+        });
+        if (report) {
+            if (!isOwner(report)) throw new AppError('Access denied', 403);
+            await prisma.medical_report.delete({ where: { id: recordId } });
+            return;
         }
-    } else if (clinicId) {
-        // Staff/Admin logic: Must belong to their active clinic
-        if (document.clinicId !== clinicId) {
-            throw new AppError('Access denied. Document belongs to a different clinic.', 403);
-        }
-    } else {
-        throw new AppError('Unauthorized', 401);
     }
 
-    await prisma.patient_document.delete({
-        where: { id: documentId }
-    });
+    // 3. service_order table
+    if (!tableHint || tableHint === 'service_order') {
+        const order = await prisma.service_order.findUnique({
+            where: { id: recordId },
+            include: { patient: { select: { email: true } } }
+        });
+        if (order) {
+            if (!isOwner(order)) throw new AppError('Access denied', 403);
+            await prisma.service_order.delete({ where: { id: recordId } });
+            return;
+        }
+    }
+
+    // 4. medicalrecord table
+    if (!tableHint || tableHint === 'medicalrecord') {
+        const medRecord = await prisma.medicalrecord.findUnique({
+            where: { id: recordId },
+            include: { patient: { select: { email: true } } }
+        });
+        if (medRecord) {
+            if (!isOwner(medRecord)) throw new AppError('Access denied', 403);
+            await prisma.medicalrecord.delete({ where: { id: recordId } });
+            return;
+        }
+    }
+
+    throw new AppError('Record not found', 404);
 };
 
 export const getMyInvoices = async (userId: number, email: string, clinicId?: number) => {
@@ -236,14 +300,22 @@ export const getMyInvoices = async (userId: number, email: string, clinicId?: nu
         where: invoiceWhere,
         include: {
             clinic: { select: { name: true } },
-            items: true
+            items: true,
+            doctor: {
+                include: {
+                    user: { select: { name: true } }
+                }
+            }
         },
         orderBy: {
             date: 'desc'
         }
     });
 
-    return invoices;
+    return invoices.map((inv: any) => ({
+        ...inv,
+        doctorName: inv.doctor?.user?.name || null
+    }));
 };
 
 export const getMyActivity = async (userId: number, email: string, clinicId?: number) => {
@@ -560,13 +632,17 @@ export const getMyClinics = async (email: string) => {
                 select: {
                     id: true,
                     name: true,
-                    location: true
+                    location: true,
+                    documentTypes: true
                 }
             }
         }
     });
 
-    return patients.map(p => p.clinic);
+    return patients.map(p => ({
+        ...p.clinic,
+        documentTypes: p.clinic.documentTypes ? JSON.parse(p.clinic.documentTypes) : []
+    }));
 };
 
 export const getPublicClinics = async () => {

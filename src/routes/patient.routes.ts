@@ -13,6 +13,7 @@ router.use(protect);
 router.use(restrictTo('PATIENT', 'ADMIN', 'RECEPTIONIST'));
 
 router.get('/appointments', patientController.getMyAppointments);
+router.delete('/appointments/:appointmentId', patientController.cancelAppointment);
 router.get('/records', patientController.getMyMedicalRecords);
 router.get('/invoices', patientController.getMyInvoices);
 router.get('/activity', patientController.getMyActivity);

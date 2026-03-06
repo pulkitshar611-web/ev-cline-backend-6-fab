@@ -25,12 +25,14 @@ model appointment {
   updatedAt     DateTime @default(now()) @updatedAt
   referenceId   String?  @unique(map: "Appointment_referenceId_key")
   service       String?
-  clinic        clinic   @relation(fields: [clinicId], references: [id], map: "Appointment_clinicId_fkey")
-  patient       patient  @relation(fields: [patientId], references: [id], map: "Appointment_patientId_fkey")
+  doctor        clinicstaff @relation(fields: [doctorId], references: [id], map: "Appointment_doctorId_fkey")
+  clinic        clinic      @relation(fields: [clinicId], references: [id], map: "Appointment_clinicId_fkey")
+  patient       patient     @relation(fields: [patientId], references: [id], map: "Appointment_patientId_fkey")
   invoice       invoice[]
 
   @@index([clinicId], map: "Appointment_clinicId_fkey")
   @@index([patientId], map: "Appointment_patientId_fkey")
+  @@index([doctorId], map: "Appointment_doctorId_fkey")
 }
 
 model auditlog {
@@ -104,6 +106,8 @@ model clinicstaff {
   roles          String?          @db.LongText
   clinic         clinic           @relation(fields: [clinicId], references: [id], map: "ClinicStaff_clinicId_fkey")
   user           user             @relation(fields: [userId], references: [id], map: "ClinicStaff_userId_fkey")
+  appointment    appointment[]
+  invoice        invoice[]
   staff_document staff_document[]
 
   @@unique([userId, clinicId], map: "ClinicStaff_userId_clinicId_key")
@@ -158,11 +162,13 @@ model invoice {
   clinic        clinic         @relation(fields: [clinicId], references: [id], map: "Invoice_clinicId_fkey")
   patient       patient        @relation(fields: [patientId], references: [id], map: "Invoice_patientId_fkey")
   appointment   appointment?   @relation(fields: [visitId], references: [id], map: "Invoice_visitId_fkey")
+  doctor        clinicstaff?   @relation(fields: [doctorId], references: [id], map: "Invoice_doctorId_fkey")
   items         invoice_item[]
 
   @@index([clinicId], map: "Invoice_clinicId_fkey")
   @@index([patientId], map: "Invoice_patientId_fkey")
   @@index([visitId], map: "Invoice_visitId_fkey")
+  @@index([doctorId], map: "Invoice_doctorId_fkey")
 }
 
 model invoice_item {

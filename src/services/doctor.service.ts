@@ -477,19 +477,23 @@ export const createOrder = async (clinicId: number, doctorId: number, data: any)
 };
 
 export const getRevenueStats = async (clinicId: number, doctorId: number) => {
-    // 1. Get all completed appointments
-    const completedAppts = await prisma.appointment.findMany({
+    // 1. Get all invoices for this doctor that are paid
+    const paidInvoices = await prisma.invoice.findMany({
         where: {
             clinicId,
             doctorId,
-            status: 'Completed'
+            status: 'Paid'
         },
-        select: { date: true } // Assuming standard fee
+        select: { totalAmount: true, date: true, createdAt: true }
     });
 
-    const FEE = 350; // Hardcoded for now as per frontend logic
-    const totalEarnings = completedAppts.length * FEE;
-    const totalConsultations = completedAppts.length;
+    // 2. Get all invoices for this doctor that are pending (for outstanding info if needed, but the current return structure doesn't include it)
+    // We'll focus on the requested return structure
+
+    const totalEarnings = paidInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0);
+    const totalConsultations = await prisma.appointment.count({
+        where: { clinicId, doctorId, status: 'Completed' }
+    });
 
     const today = new Date();
     const currentMonth = today.getMonth();
@@ -502,25 +506,25 @@ export const getRevenueStats = async (clinicId: number, doctorId: number) => {
     // Daily buckets for chart
     const dailyMap = new Map<string, number>();
 
-    completedAppts.forEach(appt => {
-        const d = new Date(appt.date);
+    paidInvoices.forEach(inv => {
+        const d = new Date(inv.date || inv.createdAt);
         const dateStr = d.toISOString().split('T')[0];
 
         // Chart data
-        dailyMap.set(dateStr, (dailyMap.get(dateStr) || 0) + 1);
+        dailyMap.set(dateStr, (dailyMap.get(dateStr) || 0) + Number(inv.totalAmount || 0));
 
         // Stats
         if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
-            thisMonth += FEE;
+            thisMonth += Number(inv.totalAmount || 0);
         }
         if (dateStr === todayStr) {
-            todayEarned += FEE;
+            todayEarned += Number(inv.totalAmount || 0);
         }
     });
 
     // Format chart data (last 7 active days or just map entries)
     const chartData = Array.from(dailyMap.entries())
-        .map(([date, count]) => ({ date, visits: count, earnings: count * FEE }))
+        .map(([date, earnings]) => ({ date, earnings }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
     return {
@@ -528,6 +532,10 @@ export const getRevenueStats = async (clinicId: number, doctorId: number) => {
         thisMonth,
         today: todayEarned,
         totalConsultations,
+        totalOutstanding: (await prisma.invoice.aggregate({
+            where: { clinicId, doctorId, status: 'Pending' },
+            _sum: { totalAmount: true }
+        }))._sum.totalAmount || 0,
         chartData
     };
 };
