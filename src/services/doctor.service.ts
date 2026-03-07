@@ -385,7 +385,22 @@ export const getAssignedPatients = async (clinicId: number, doctorId: number) =>
                 where: { clinicId },
                 take: 1,
                 orderBy: { createdAt: 'desc' },
-                select: { createdAt: true, type: true }
+                select: { createdAt: true, type: true, data: true }
+            }
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+};
+
+export const getAllClinicPatients = async (clinicId: number) => {
+    return await prisma.patient.findMany({
+        where: { clinicId },
+        include: {
+            medicalrecord: {
+                where: { clinicId },
+                take: 1,
+                orderBy: { createdAt: 'desc' },
+                select: { createdAt: true, type: true, data: true }
             }
         },
         orderBy: { createdAt: 'desc' }

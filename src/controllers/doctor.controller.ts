@@ -81,8 +81,17 @@ export const getTemplateById = asyncHandler(async (req: AuthRequest, res: Respon
 });
 
 export const getPatients = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const doctorId = await resolveDoctorId(req.user!.id, req.clinicId!);
-    const patients = await doctorService.getAssignedPatients(req.clinicId!, doctorId);
+    const staff = await prisma.clinicstaff.findFirst({
+        where: { userId: req.user!.id, clinicId: req.clinicId }
+    });
+
+    let patients;
+    if (staff && staff.role === 'DOCTOR') {
+        patients = await doctorService.getAssignedPatients(req.clinicId!, staff.id);
+    } else {
+        // Admin, Receptionist, Document Controller can see all clinic patients
+        patients = await doctorService.getAllClinicPatients(req.clinicId!);
+    }
     res.status(200).json({ status: 'success', data: patients });
 });
 
