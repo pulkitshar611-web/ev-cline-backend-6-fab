@@ -52,6 +52,7 @@ app.use(
       process.env.FRONTEND_URL || "http://localhost:5173",
       "https://ev-cline-backend-6-fab-production.up.railway.app",
       "https://ev-clinic.kiaantechnology.com",
+      "https://ev-clinic.wenbear.online",
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
